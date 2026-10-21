@@ -1,0 +1,20 @@
+$TTL 60
+@       IN      SOA     ns1.huesca.empresa.lan. admin.huesca.empresa.lan. (
+                              2026102101 ; Serial
+                                      60 ; Refresh
+                                      60 ; Retry
+                                 86400 ; Expire
+                                      60 ) ; Minimum TTL
+
+@       IN      NS      ns1.huesca.empresa.lan.
+@       IN      NS      ns2.huesca.empresa.lan.
+
+ns1      IN      A       10.5.0.1
+ns2      IN      A       10.5.0.1
+srv      IN      A       10.5.0.1
+servidor IN      A       10.5.0.1
+www      IN      A       10.5.0.1
+intranet IN      A       10.5.0.1
+git      IN      A       10.5.0.1
+db       IN      A       10.5.0.1
+correo   IN      A       10.5.0.1

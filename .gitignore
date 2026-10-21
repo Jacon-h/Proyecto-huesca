@@ -1,0 +1,4 @@
+# Claves de verdad: solo en el servidor
+.env
+# Lo que instalar.sh genera a partir de .env (htpasswd, certificados…)
+secretos/

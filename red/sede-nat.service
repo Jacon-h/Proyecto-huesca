@@ -1,0 +1,12 @@
+[Unit]
+Description=NAT de la red interna de la sede
+After=docker.service network-online.target
+Wants=docker.service network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/sede-nat.sh
+
+[Install]
+WantedBy=multi-user.target
