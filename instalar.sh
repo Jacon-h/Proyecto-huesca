@@ -164,7 +164,7 @@ verificar() {
     echo "== Estado de los contenedores:"
     docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
 
-    if [ "$FALLOS" -eq 0 ]; then echo "=== TODO CORRECTO ==="
+    if [ "$FALLOS" -eq 0 ]; then echo "=== TODO BIEN TODO CORRECTO Y YO QUE ME ALEGRO ==="
     else echo "=== HAY COMPROBACIONES FALLIDAS ==="; exit 1; fi
 }
 
