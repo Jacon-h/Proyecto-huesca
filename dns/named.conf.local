@@ -1,9 +1,0 @@
-zone "huesca.empresa.lan" {
-    type master;
-    file "/etc/bind/db.huesca.empresa.lan";
-};
-
-zone "0.5.10.in-addr.arpa" {
-    type master;
-    file "/etc/bind/db.10.5.0";
-};

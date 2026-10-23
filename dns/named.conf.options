@@ -1,8 +1,0 @@
-options {
-    directory "/var/cache/bind";
-    recursion no;                 // las vistas que lo necesitan lo activan
-    allow-query { any; };
-    allow-transfer { none; };     // solo se permite, por zona, al secundario
-    dnssec-validation auto;
-    listen-on { any; };
-};
