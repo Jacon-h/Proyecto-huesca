@@ -116,15 +116,15 @@ dns() {
     liberar_puerto_53
 
     # --- Valores derivados de sede.env
-    IP_INTERNA_SOLO="${IP_INTERNA%/*}"                       # 10.5.0.1
+    IP_INTERNA_SOLO="${IP_INTERNA%/*}"                       # 10.2.0.1
     IP_AULA_SOLO="${IP_AULA%/*}"                             # 192.168.6.105
     IFS=. read -r o1 o2 o3 _ <<< "${RED_INTERNA%/*}"
-    ZONA_INVERSA="${o2}.${o1}.in-addr.arpa"                  # 5.10.in-addr.arpa
+    ZONA_INVERSA="${o2}.${o1}.in-addr.arpa"                  # 2.10.in-addr.arpa
     PTR_SERVIDOR="${IP_INTERNA_SOLO##*.}.${o3}"              # 1.0 (dentro de la zona anterior)
     ACL_AULA=""; for r in $REDES_AULA; do ACL_AULA+="$r; "; done
 
     # Serial siempre creciente (YYYYMMDDHH, o el anterior +1): así el secundario se entera de cada cambio
-    mkdir -p generado/dns/interna generado/dns/aula
+    mkdir -p generado/dns/interna generado/dns/aula generado/dns-secundario
     SERIAL=$(date +%Y%m%d%H)
     if [ -f generado/serial ] && [ "$SERIAL" -le "$(cat generado/serial)" ]; then SERIAL=$(( $(cat generado/serial) + 1 )); fi
     echo "$SERIAL" > generado/serial
@@ -139,6 +139,10 @@ dns() {
     envsubst "$VARS" < dns/interna/db.inversa.tpl   > generado/dns/interna/db.inversa
     envsubst "$VARS" < dns/aula/db.directa.tpl      > "generado/dns/aula/db.$DOMINIO"
     chmod -R a+rX generado/dns
+
+    # Configuración que hay que cargar en el DNS secundario (vive en GNS3, no en este servidor)
+    envsubst "$VARS" < dns/secundario/named.conf.local.tpl > generado/dns-secundario/named.conf.local
+    echo "   Config del secundario generada en generado/dns-secundario/named.conf.local (ver dns/README.md)"
 
     # --- Validar ANTES de tocar el contenedor: si hay un error, el DNS que ya funciona sigue vivo
     docker pull -q internetsystemsconsortium/bind9:9.18 >/dev/null
