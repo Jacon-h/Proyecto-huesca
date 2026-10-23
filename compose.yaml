@@ -68,7 +68,7 @@ services:
     container_name: mi-bind9
     network_mode: host                # escucha en la IP del aula, puerto 53
     volumes:
-      - ./dns:/etc/bind:ro            # named.conf, named.conf.options, named.conf.local y las zonas
+      - ./generado/dns:/etc/bind:ro   # lo genera instalar.sh dns a partir de dns/*.tpl y sede.env
     command: ["-g", "-c", "/etc/bind/named.conf", "-u", "bind"]
     restart: unless-stopped
 

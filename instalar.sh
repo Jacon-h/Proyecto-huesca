@@ -114,7 +114,40 @@ liberar_puerto_53() {
 dns() {
     echo "== Servidor DNS (BIND9)"
     liberar_puerto_53
-    chmod 644 dns/named.conf* dns/db.*
+
+    # --- Valores derivados de sede.env
+    IP_INTERNA_SOLO="${IP_INTERNA%/*}"                       # 10.5.0.1
+    IP_AULA_SOLO="${IP_AULA%/*}"                             # 192.168.6.105
+    IFS=. read -r o1 o2 o3 _ <<< "${RED_INTERNA%/*}"
+    ZONA_INVERSA="${o2}.${o1}.in-addr.arpa"                  # 5.10.in-addr.arpa
+    PTR_SERVIDOR="${IP_INTERNA_SOLO##*.}.${o3}"              # 1.0 (dentro de la zona anterior)
+    ACL_AULA=""; for r in $REDES_AULA; do ACL_AULA+="$r; "; done
+
+    # Serial siempre creciente (YYYYMMDDHH, o el anterior +1): así el secundario se entera de cada cambio
+    mkdir -p generado/dns/interna generado/dns/aula
+    SERIAL=$(date +%Y%m%d%H)
+    if [ -f generado/serial ] && [ "$SERIAL" -le "$(cat generado/serial)" ]; then SERIAL=$(( $(cat generado/serial) + 1 )); fi
+    echo "$SERIAL" > generado/serial
+
+    export DOMINIO RED_INTERNA IP_INTERNA_SOLO IP_AULA_SOLO IP_DNS_SECUNDARIO ZONA_INVERSA PTR_SERVIDOR ACL_AULA SERIAL
+    VARS='${DOMINIO} ${RED_INTERNA} ${IP_INTERNA_SOLO} ${IP_AULA_SOLO} ${IP_DNS_SECUNDARIO} ${ZONA_INVERSA} ${PTR_SERVIDOR} ${ACL_AULA} ${SERIAL}'
+
+    # --- Generar la configuración (envsubst SOLO con esa lista, para no tocar los $TTL de las zonas)
+    cp dns/named.conf dns/named.conf.options generado/dns/
+    envsubst "$VARS" < dns/named.conf.local.tpl     > generado/dns/named.conf.local
+    envsubst "$VARS" < dns/interna/db.directa.tpl   > "generado/dns/interna/db.$DOMINIO"
+    envsubst "$VARS" < dns/interna/db.inversa.tpl   > generado/dns/interna/db.inversa
+    envsubst "$VARS" < dns/aula/db.directa.tpl      > "generado/dns/aula/db.$DOMINIO"
+    chmod -R a+rX generado/dns
+
+    # --- Validar ANTES de tocar el contenedor: si hay un error, el DNS que ya funciona sigue vivo
+    docker pull -q internetsystemsconsortium/bind9:9.18 >/dev/null
+    if ! docker run --rm -v "$PWD/generado/dns:/etc/bind:ro" --entrypoint named-checkconf \
+            internetsystemsconsortium/bind9:9.18 -z /etc/bind/named.conf; then
+        echo "ERROR: la configuración de BIND no es válida (arriba está el motivo). No toco el DNS actual."
+        exit 1
+    fi
+
     docker rm -f mi-bind9 2>/dev/null || true          # restos de intentos anteriores
     docker compose up -d --force-recreate dns
 }
@@ -157,6 +190,13 @@ verificar() {
     if command -v dig &>/dev/null; then
         r=$(dig +short +time=2 +tries=1 @127.0.0.1 www.huesca.empresa.lan || true)
         [ -n "$r" ] && echo "OK    DNS www -> $r" || { echo "FALLO DNS: www.huesca.empresa.lan no resuelve"; FALLOS=1; }
+    fi
+
+    # Vista del aula: preguntamos desde la IP del aula del propio servidor (así BIND nos ve como "aula")
+    if command -v dig &>/dev/null && ip -4 -br addr show "$INTERFAZ_AULA" 2>/dev/null | grep -q "${IP_AULA%/*}"; then
+        r=$(dig +short +time=2 +tries=1 -b "${IP_AULA%/*}" "@${IP_AULA%/*}" www.$DOMINIO A | tail -1 || true)
+        [ "$r" = "${IP_AULA%/*}" ] && echo "OK    DNS vista aula www -> $r" \
+            || { echo "FALLO DNS vista aula: esperaba ${IP_AULA%/*} y salió '$r'"; FALLOS=1; }
     fi
 
     bash web/probar.sh || FALLOS=1

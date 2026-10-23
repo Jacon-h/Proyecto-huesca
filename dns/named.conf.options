@@ -1,13 +1,8 @@
 options {
-        directory "/var/cache/bind";
-
-        forwarders {
-                8.8.8.8;
-                8.8.4.4;
-        };
-
-        allow-query { any; };
-
-        auth-nxdomain no;
-        listen-on-v6 { any; };
+    directory "/var/cache/bind";
+    recursion no;                 // las vistas que lo necesitan lo activan
+    allow-query { any; };
+    allow-transfer { none; };     // solo se permite, por zona, al secundario
+    dnssec-validation auto;
+    listen-on { any; };
 };

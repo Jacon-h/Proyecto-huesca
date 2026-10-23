@@ -1,28 +1,54 @@
 # dns/ · SRI
 
-BIND: configuración, zonas directa e inversa, primario y secundario.
+Servidor DNS de la sede (`huesca.empresa.lan`): BIND9 en el contenedor `mi-bind9`, con **dos vistas** y un secundario.
 
-# Servidor DNS - Sede Huesca (`huesca.empresa.lan`)
-
-Este directorio contiene la configuración y los ficheros de zona para el servidor DNS basado en **BIND9** dentro de un contenedor Docker (`mi-bind9`), correspondiente a la Sede Huesca.
-
----
-
-## 📁 Estructura de la carpeta `dns/`
-
-Para que el servidor DNS arranque en un solo comando, la carpeta `dns/` debe contener los siguientes archivos:
-
-- `named.conf.options`: Opciones generales de BIND9 (reenviadores DNS y permisos de consulta).
-- `named.conf.local`: Declaración de la zona directa (`huesca.empresa.lan`) y la zona inversa (`0.5.10.in-addr.arpa`).
-- `db.huesca.empresa.lan`: Fichero de la zona directa con los registros A y CNAME.
-- `db.10.5.0`: Fichero de la zona inversa para la red local.
-
----
-
-## 🚀 Arranque del Servidor en un solo comando
-
-Para levantar el servicio DNS con toda la configuración cargada directamente desde las carpetas locales, ejecuta desde la raíz del repositorio:
+## Cómo se instala
 
 ```bash
 sudo ./instalar.sh dns
 ```
+
+La fase `dns` hace esto, en orden:
+
+1. Libera el puerto 53 si lo ocupa `systemd-resolved`.
+2. Genera la configuración en `generado/dns/` a partir de las plantillas `*.tpl` y de `sede.env` (no va en Git).
+3. La **valida** con `named-checkconf -z`. Si falla, aborta sin tocar el DNS que ya estaba funcionando.
+4. Recrea el contenedor `mi-bind9` con esa configuración montada en `/etc/bind`.
+
+Cada ejecución sube el *serial* de las zonas, así el secundario se entera siempre de los cambios.
+
+## Qué hay en la carpeta
+
+| Fichero | Para qué |
+|---|---|
+| `named.conf`, `named.conf.options` | Fijos. Recursión desactivada por defecto y `allow-transfer { none; }`. |
+| `named.conf.local.tpl` | ACL y las dos vistas (`interna` y `aula`) con sus zonas. |
+| `interna/db.directa.tpl` | Zona directa para la red interna (todo apunta a `IP_INTERNA`). |
+| `interna/db.inversa.tpl` | Zona inversa (`5.10.in-addr.arpa`) para la red interna. |
+| `aula/db.directa.tpl` | Zona directa para el aula (todo apunta a `IP_AULA`). |
+
+## Las dos vistas
+
+| Vista | Quién la ve | Qué responde |
+|---|---|---|
+| `interna` | `RED_INTERNA` y el propio servidor (127.0.0.1) | Las IP internas, con recursión (reenvía a 8.8.8.8 y 1.1.1.1) y transferencia al secundario. |
+| `aula` | Las redes de `REDES_AULA` | Las IP del aula, **sin recursión** y sin transferencias. |
+
+## Datos que salen de `sede.env`
+
+`DOMINIO`, `IP_INTERNA`, `RED_INTERNA`, `IP_AULA`, `REDES_AULA`, `IP_DNS_SECUNDARIO`.
+Para otra sede o máquina se cambia solo `sede.env`; las plantillas no se tocan.
+
+> La zona inversa se calcula como `/16` (`<b>.<a>.in-addr.arpa`) para que coincida con la del secundario
+> (`dns-secundario-1`, que tiene `5.10.in-addr.arpa` como `slave`).
+
+## Pruebas rápidas
+
+```bash
+dig +short @127.0.0.1 www.huesca.empresa.lan                  # vista interna  -> 10.5.0.1
+dig +short -b 192.168.6.105 @192.168.6.105 www.huesca.empresa.lan   # vista aula -> 192.168.6.105
+dig +short -x 10.5.0.1 @127.0.0.1                             # inversa
+dig +short @10.5.0.2 www.huesca.empresa.lan                   # secundario
+```
+
+La fase `verificar` ya comprueba las dos primeras.
