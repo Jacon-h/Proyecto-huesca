@@ -163,6 +163,185 @@ dns() {
 }
 
 
+# ---------------------------------------------------------------- GNS3
+# Servidor GNS3 en este servidor (puerto 3080, lo que muestra gns3.huesca.empresa.lan por Apache),
+# imagen del DNS secundario y proyecto de la red interna importado y arrancado.
+GNS3_VERSION_PIP="2.2.61"        # versión del proyecto (solo se usa si el PPA no sirve)
+GNS3_PUERTO=3080
+GNS3_LOG=/var/log/instalar-gns3.log
+GNS3_API="http://127.0.0.1:$GNS3_PUERTO/v2"
+GNS3_PROYECTO="gns3/red_huesca.gns3project"
+
+gns3_usuario() {
+    id gns3 &>/dev/null || useradd --system --create-home --home-dir /opt/gns3 --shell /usr/sbin/nologin gns3
+    mkdir -p /opt/gns3
+    for g in docker kvm ubridge; do                      # solo los grupos que existan
+        getent group "$g" >/dev/null && usermod -aG "$g" gns3
+    done
+    return 0
+}
+
+gns3_paquetes_ppa() {
+    apt-get install -y software-properties-common
+    add-apt-repository -y ppa:gns3/ppa
+    apt-get update
+    apt-get install -y gns3-server ubridge dynamips vpcs
+}
+
+gns3_paquetes_pip() {
+    # gns3-server por pip; ubridge y vpcs desde el código oficial (el vpcs de Ubuntu es demasiado viejo)
+    apt-get install -y python3-venv python3-pip build-essential libpcap-dev git dynamips
+    python3 -m venv /opt/gns3/venv
+    /opt/gns3/venv/bin/pip install --upgrade pip
+    /opt/gns3/venv/bin/pip install "gns3-server==$GNS3_VERSION_PIP"
+    ln -sf /opt/gns3/venv/bin/gns3server /usr/local/bin/gns3server
+
+    local tmp; tmp=$(mktemp -d)
+    git clone --depth 1 --branch v0.9.19 https://github.com/GNS3/ubridge.git "$tmp/ubridge"
+    make -C "$tmp/ubridge"
+    install -m 755 "$tmp/ubridge/ubridge" /usr/local/bin/ubridge
+    git clone --depth 1 --branch v0.8.5 https://github.com/GNS3/vpcs.git "$tmp/vpcs"
+    (cd "$tmp/vpcs/src" && ./mk.sh)
+    install -m 755 "$tmp/vpcs/src/vpcs" /usr/local/bin/vpcs
+    rm -rf "$tmp"
+}
+
+gns3_instalar_servidor() {
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get install -y curl ca-certificates libcap2-bin gettext-base >/dev/null
+    gns3_usuario
+
+    if command -v gns3server &>/dev/null && command -v ubridge &>/dev/null \
+       && command -v vpcs &>/dev/null && command -v dynamips &>/dev/null; then
+        echo "   GNS3 ya está instalado ($(gns3server --version 2>/dev/null | tail -1))"
+    else
+        echo "   Instalando GNS3 (puede tardar unos minutos; detalle en $GNS3_LOG)"
+        if ( gns3_paquetes_ppa ) >>"$GNS3_LOG" 2>&1; then
+            echo "   Instalado desde el PPA oficial de GNS3"
+        else
+            echo "   El PPA no ha servido; instalo con pip y compilo ubridge y vpcs"
+            add-apt-repository -r -y ppa:gns3/ppa >>"$GNS3_LOG" 2>&1 || true
+            if ! ( gns3_paquetes_pip ) >>"$GNS3_LOG" 2>&1; then
+                echo "ERROR: no he podido instalar GNS3. Últimas líneas de $GNS3_LOG:"; tail -15 "$GNS3_LOG"; exit 1
+            fi
+        fi
+    fi
+
+    # ubridge necesita capacidades de red para conectar los nodos con br-virtual
+    setcap cap_net_admin,cap_net_raw=ep "$(command -v ubridge)" 2>/dev/null || true
+    chown -R gns3:gns3 /opt/gns3
+}
+
+gns3_imagen_dns_secundario() {
+    # El nodo Docker del proyecto usa la imagen dns-secundario:1.0. Se construye con las zonas
+    # que ha generado la fase dns (generado/dns-secundario/named.conf.local).
+    [ -f generado/dns-secundario/named.conf.local ] || dns
+    local ctx=generado/dns-secundario/imagen
+    rm -rf "$ctx"; mkdir -p "$ctx"
+    cp gns3/dns-secundario/Dockerfile gns3/dns-secundario/named.conf.options "$ctx/"
+    cp generado/dns-secundario/named.conf.local "$ctx/"
+    export IP_DNS_SECUNDARIO IP_INTERNA_SOLO="${IP_INTERNA%/*}" PREFIJO_INTERNA="${IP_INTERNA#*/}"
+    envsubst '${IP_DNS_SECUNDARIO} ${PREFIJO_INTERNA} ${IP_INTERNA_SOLO}' \
+        < gns3/dns-secundario/entrypoint.sh.tpl > "$ctx/entrypoint.sh"
+    docker build -q -t dns-secundario:1.0 "$ctx" >/dev/null
+    echo "   Imagen dns-secundario:1.0 lista"
+}
+
+gns3_servicio() {
+    # Unidad systemd propia: escucha en 0.0.0.0:3080, arranca después de Docker y sobrevive a reinicios.
+    local bin espera=""; bin=$(command -v gns3server)
+    # Tras un reinicio, que GNS3 espere (máx. 30 s) a que exista el puente antes de arrancar los nodos
+    if [ -f /etc/netplan/60-sede.yaml ]; then
+        cat > /usr/local/sbin/gns3-espera-puente.sh <<'ESPERA'
+#!/bin/bash
+for _ in $(seq 1 30); do ip link show "$1" >/dev/null 2>&1 && exit 0; sleep 1; done
+exit 0
+ESPERA
+        chmod 755 /usr/local/sbin/gns3-espera-puente.sh
+        espera="ExecStartPre=-/usr/local/sbin/gns3-espera-puente.sh $BRIDGE_INTERNA"
+    fi
+    cat > /etc/systemd/system/gns3server.service <<UNIT
+[Unit]
+Description=GNS3 server (sede $SEDE)
+After=network-online.target docker.service
+Wants=network-online.target docker.service
+
+[Service]
+User=gns3
+Group=gns3
+WorkingDirectory=/opt/gns3
+$espera
+ExecStart=$bin --host 0.0.0.0 --port $GNS3_PUERTO
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+    systemctl daemon-reload
+    systemctl enable gns3server >/dev/null 2>&1
+    systemctl restart gns3server
+
+    # Apache (en un contenedor) llega al servidor por la red de Docker: se lo permitimos a UFW.
+    ufw allow from 172.16.0.0/12 to any port "$GNS3_PUERTO" proto tcp >/dev/null 2>&1 || true
+
+    for _ in $(seq 1 60); do
+        curl -fs "$GNS3_API/version" >/dev/null 2>&1 && return 0
+        sleep 1
+    done
+    echo "ERROR: gns3server no responde en el puerto $GNS3_PUERTO"; journalctl -u gns3server -n 20 --no-pager || true
+    exit 1
+}
+
+gns3_nodos_parados() {      # imprime cuántos nodos del proyecto NO están arrancados
+    curl -s "$GNS3_API/projects/$1/nodes" 2>/dev/null | python3 -c '
+import sys, json
+try: print(sum(1 for n in json.load(sys.stdin) if n.get("status") != "started"))
+except Exception: print(99)'
+}
+
+gns3_importar() {           # $1 = id del proyecto
+    curl -fsS -o /dev/null -X POST -H 'Content-Type: application/octet-stream' \
+        --data-binary @"$GNS3_PROYECTO" "$GNS3_API/projects/$1/import?name=red%20huesca"
+    # Que se abra y arranque solo cada vez que arranque el servidor GNS3 (también tras un reinicio)
+    curl -fsS -o /dev/null -X PUT -H 'Content-Type: application/json' \
+        -d '{"auto_open":true,"auto_start":true}' "$GNS3_API/projects/$1"
+}
+
+gns3_proyecto() {
+    local id code parados
+    id=$(python3 -c 'import sys,json,zipfile; print(json.loads(zipfile.ZipFile(sys.argv[1]).read("project.gns3"))["project_id"])' "$GNS3_PROYECTO")
+    code=$(curl -s -o /dev/null -w '%{http_code}' "$GNS3_API/projects/$id")
+    if [ "$code" = 404 ]; then
+        echo "   Importando el proyecto de la red interna"
+        gns3_importar "$id" || { echo "ERROR: no he podido importar $GNS3_PROYECTO"; exit 1; }
+    fi
+
+    for intento in 1 2 3; do
+        curl -s -o /dev/null -X POST -H 'Content-Type: application/json' -d '{}' "$GNS3_API/projects/$id/open"
+        curl -s -o /dev/null -X POST -H 'Content-Type: application/json' -d '{}' "$GNS3_API/projects/$id/nodes/start"
+        sleep 3
+        parados=$(gns3_nodos_parados "$id")
+        [ "$parados" = 0 ] && break
+        if [ "$intento" = 2 ]; then       # último recurso: proyecto limpio (p. ej. si borraron su contenedor)
+            echo "   Los nodos no arrancan; vuelvo a importar el proyecto desde cero"
+            curl -s -o /dev/null -X DELETE "$GNS3_API/projects/$id"
+            gns3_importar "$id" || true
+        fi
+    done
+
+    if [ "$parados" = 0 ]; then echo "   Proyecto 'red huesca' abierto y con todos los nodos arrancados"
+    else echo "AVISO: $parados nodo(s) de GNS3 sin arrancar (¿existe $BRIDGE_INTERNA? ¿está la imagen dns-secundario:1.0?)"; fi
+}
+
+gns3() {
+    echo "== GNS3 (servidor y proyecto de la red interna)"
+    gns3_instalar_servidor
+    gns3_imagen_dns_secundario
+    gns3_servicio
+    gns3_proyecto
+}
+
+
 web() {
     echo "== Servidor Web, Base de Datos y Forgejo"
 
@@ -209,6 +388,21 @@ verificar() {
             || { echo "FALLO DNS vista aula: esperaba ${IP_AULA%/*} y salió '$r'"; FALLOS=1; }
     fi
 
+    # GNS3: servidor, proxy de Apache (gns3.$DOMINIO) y nodos del proyecto
+    if command -v gns3server &>/dev/null; then
+        v=$(curl -fs "$GNS3_API/version" 2>/dev/null | python3 -c 'import sys,json; print(json.load(sys.stdin)["version"])' 2>/dev/null || true)
+        [ -n "$v" ] && echo "OK    servidor GNS3 $v (puerto $GNS3_PUERTO)" || { echo "FALLO servidor GNS3: no responde en el puerto $GNS3_PUERTO"; FALLOS=1; }
+        c=$(curl -s -o /dev/null -w '%{http_code}' -H "Host: gns3.$DOMINIO" http://localhost/v2/version || true)
+        [ "$c" = 200 ] && echo "OK    gns3.$DOMINIO (Apache -> GNS3)" || { echo "FALLO gns3.$DOMINIO: recibido $c"; FALLOS=1; }
+        if ip link show "$BRIDGE_INTERNA" &>/dev/null; then
+            pid=$(python3 -c 'import sys,json,zipfile; print(json.loads(zipfile.ZipFile(sys.argv[1]).read("project.gns3"))["project_id"])' "$GNS3_PROYECTO")
+            p=$(gns3_nodos_parados "$pid")
+            [ "$p" = 0 ] && echo "OK    proyecto GNS3: todos los nodos arrancados" || { echo "FALLO proyecto GNS3: $p nodo(s) sin arrancar"; FALLOS=1; }
+        fi
+    else
+        echo "AVISO: GNS3 no está instalado (ejecuta: sudo ./instalar.sh gns3)"
+    fi
+
     bash web/probar.sh || FALLOS=1
 
     echo "== Estado de los contenedores:"
@@ -222,15 +416,16 @@ verificar() {
 # ================================================================== QUÉ FASES SE EJECUTAN
 
 case "${1:-}" in
-    "")        comprobar; red_automatica; sistema; dns; web; verificar ;;
+    "")        comprobar; red_automatica; sistema; dns; gns3; web; verificar ;;
     comprobar) comprobar ;;
     red)       comprobar; red ;;
     sistema)   comprobar; sistema ;;
     dns)       comprobar; dns ;;
+    gns3)      comprobar; gns3 ;;
     web)       comprobar; web ;;
     verificar) comprobar; verificar ;;
     *)
         echo "ERROR: no existe la fase '$1'"
-        echo "Fases: comprobar red sistema dns web verificar"
+        echo "Fases: comprobar red sistema dns gns3 web verificar"
         exit 1 ;;
 esac
