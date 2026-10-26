@@ -1,0 +1,89 @@
+# compose.yaml · Todos los contenedores de la sede, en un solo fichero.
+# Se lanza desde la raíz del repositorio. instalar.sh lo hace por fases.
+# Es el ÚNICO compose del proyecto: no debe haber otros en web/ ni dns/.
+
+services:
+
+  # ============================================================ web · IAW
+  web:
+    build: ./web
+    container_name: mi-apache
+    ports:
+      - "80:80"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      # El fichero lo genera instalar.sh a partir de .env (no va en Git)
+      - ./secretos/intranet.htpasswd:/etc/apache2/.htpasswd:ro
+    environment:                      # nombres que lee el PHP con getenv()
+      DB_HOST: db
+      DB_NAME: ${DB_NAME}
+      DB_USER: usuario_app
+      DB_PASSWORD: ${DB_PASSWORD}
+    networks: [frontal, trasera]
+    depends_on:
+      db:
+        condition: service_healthy
+      git:
+        condition: service_started
+    restart: unless-stopped
+
+  # ============================================================ db · ASGBD
+  db:
+    image: postgres:16
+    container_name: mi-postgres
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: usuario_app
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - datos:/var/lib/postgresql/data
+      - ./db:/docker-entrypoint-initdb.d:ro
+    networks: [trasera]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      retries: 10
+    restart: unless-stopped
+
+  # ============================================================ git · Optativo
+  git:
+    image: codeberg.org/forgejo/forgejo:1.21
+    container_name: forgejo
+    environment:
+      - USER_UID=1000
+      - USER_GID=1000
+      # Los datos de la sede salen de sede.env (instalar.sh exporta DOMINIO); mandan sobre el app.ini restaurado
+      - GITEA__server__DOMAIN=git.${DOMINIO:-huesca.empresa.lan}
+      - GITEA__server__SSH_DOMAIN=git.${DOMINIO:-huesca.empresa.lan}
+      - GITEA__server__ROOT_URL=http://git.${DOMINIO:-huesca.empresa.lan}/
+      - GITEA__server__SSH_PORT=2222          # puerto que ven los clientes (el que sale en la URL de clonado)
+      - GITEA__server__SSH_LISTEN_PORT=22     # puerto de sshd dentro del contenedor
+      - GITEA__security__INSTALL_LOCK=${FORGEJO_INSTALL_LOCK:-false}   # true cuando ya hay datos: sin asistente
+      - GITEA__service__DISABLE_REGISTRATION=true                      # nadie se crea cuenta solo (F2)
+    ports:
+      - "3000:3000"
+      - "2222:22"
+    volumes:
+      - ./forgejo-docker:/data
+    # frontal es necesaria: en una red "internal" Docker NO publica los puertos
+    networks: [frontal, trasera]
+    restart: unless-stopped
+
+  # ============================================================ dns · SRI
+  dns:
+    image: internetsystemsconsortium/bind9:9.18
+    container_name: mi-bind9
+    network_mode: host                # escucha en la IP del aula, puerto 53
+    volumes:
+      - ./generado/dns:/etc/bind:ro   # lo genera instalar.sh dns a partir de dns/*.tpl y sede.env
+    command: ["-g", "-c", "/etc/bind/named.conf", "-u", "bind"]
+    restart: unless-stopped
+
+volumes:
+  datos:
+
+networks:
+  frontal:
+  trasera:
+    internal: true
