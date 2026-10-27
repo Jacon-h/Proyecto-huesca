@@ -2,3 +2,14 @@
 .env
 # Lo que instalar.sh genera a partir de .env (htpasswd, certificados…)
 secretos/
+forgejo-docker/ssh/
+forgejo-docker/git/
+forgejo-docker/gitea/gitea.db
+forgejo-docker/gitea/avatars/
+forgejo-docker/gitea/home/
+forgejo-docker/gitea/indexers/
+forgejo-docker/gitea/jwt/
+forgejo-docker/gitea/queues/
+sede.env
+generado/
+restauracion/
