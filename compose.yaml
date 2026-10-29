@@ -15,7 +15,7 @@ services:
     volumes:
       # El fichero lo genera instalar.sh a partir de .env (no va en Git)
       - ./secretos/intranet.htpasswd:/etc/apache2/.htpasswd:ro
-    environment:                      # nombres que lee el PHP con getenv()
+    environment:                   # nombres que lee el PHP con getenv()
       DB_HOST: db
       DB_NAME: ${DB_NAME}
       DB_USER: usuario_app
@@ -59,8 +59,9 @@ services:
       - GITEA__server__ROOT_URL=http://git.${DOMINIO:-huesca.empresa.lan}/
       - GITEA__server__SSH_PORT=2222          # puerto que ven los clientes (el que sale en la URL de clonado)
       - GITEA__server__SSH_LISTEN_PORT=22     # puerto de sshd dentro del contenedor
-      - GITEA__security__INSTALL_LOCK=${FORGEJO_INSTALL_LOCK:-false}   # true cuando ya hay datos: sin asistente
-      - GITEA__service__DISABLE_REGISTRATION=true                      # nadie se crea cuenta solo (F2)
+      - GITEA__security__INSTALL_LOCK=${FORGEJO_INSTALL_LOCK:-true}   # CORREGIDO: por defecto bloqueado
+      - FORGEJO__security__INSTALL_LOCK=${FORGEJO_INSTALL_LOCK:-true} # Compatibilidad nativa Forgejo
+      - GITEA__service__DISABLE_REGISTRATION=true                     # nadie se crea cuenta solo (F2)
     ports:
       - "3000:3000"
       - "2222:22"
@@ -74,7 +75,7 @@ services:
   dns:
     image: internetsystemsconsortium/bind9:9.18
     container_name: mi-bind9
-    network_mode: host                # escucha en la IP del aula, puerto 53
+    network_mode: host                 # escucha en la IP del aula, puerto 53
     volumes:
       - ./generado/dns:/etc/bind:ro   # lo genera instalar.sh dns a partir de dns/*.tpl y sede.env
     command: ["-g", "-c", "/etc/bind/named.conf", "-u", "bind"]
