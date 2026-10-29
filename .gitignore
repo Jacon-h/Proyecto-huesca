@@ -1,7 +1,13 @@
 # Claves de verdad: solo en el servidor
 .env
-# Lo que instalar.sh genera a partir de .env (htpasswd, certificados…)
+sede.env
+
+# Lo que instalar.sh genera a partir de .env (htpasswd, cert, etc.)
 secretos/
+generado/
+restauracion/
+
+# Datos del contenedor de Forgejo (base de datos, claves SSH y repositorios)
 forgejo-docker/ssh/
 forgejo-docker/git/
 forgejo-docker/gitea/gitea.db
@@ -10,6 +16,10 @@ forgejo-docker/gitea/home/
 forgejo-docker/gitea/indexers/
 forgejo-docker/gitea/jwt/
 forgejo-docker/gitea/queues/
-sede.env
-generado/
-restauracion/
+forgejo-docker/gitea/log/
+forgejo-docker/gitea/sessions/
+forgejo-docker/gitea/attachments/
+forgejo-docker/gitea/repo-avatars/
+
+# Configuración sensible local de Forgejo (evita pisar tokens y SECRET_KEY en Git)
+forgejo-docker/gitea/conf/app.ini
