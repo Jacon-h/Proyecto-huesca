@@ -410,12 +410,10 @@ forgejo_restaurar() {
     fi
 
     mkdir -p "$FORGEJO_DATOS/gitea/conf" "$FORGEJO_DATOS/git/repositories"
-    # app.ini del origen: lleva SECRET_KEY e INTERNAL_TOKEN
     if [ -f "$tmp/app.ini" ]; then cp "$tmp/app.ini" "$FORGEJO_DATOS/gitea/conf/app.ini"; fi
     if [ -d "$tmp/data" ];  then cp -a "$tmp/data/."  "$FORGEJO_DATOS/gitea/"; fi
     if [ -d "$tmp/repos" ]; then cp -a "$tmp/repos/." "$FORGEJO_DATOS/git/repositories/"; fi
 
-    # El dump trae la base de datos como SQL (o ya como gitea.db dentro de data/)
     if [ ! -f "$FORGEJO_DATOS/gitea/gitea.db" ]; then
         local sql; sql=$(ls "$tmp"/*-db.sql 2>/dev/null | head -1 || true)
         if [ -n "$sql" ]; then sqlite3 "$FORGEJO_DATOS/gitea/gitea.db" < "$sql"
@@ -423,7 +421,12 @@ forgejo_restaurar() {
     fi
     rm -rf "$tmp"
 
-    # Garantizar que el usuario 1000 del contenedor sea dueño de la base de datos y repositorios restaurados
+    # CORRECCIÓN 1: Asegurar que app.ini tenga INSTALL_LOCK = true localmente
+    if [ -f "$FORGEJO_DATOS/gitea/conf/app.ini" ]; then
+        sed -i 's/INSTALL_LOCK.*/INSTALL_LOCK = true/' "$FORGEJO_DATOS/gitea/conf/app.ini"
+    fi
+
+    # CORRECCIÓN 2: Permisos 1000:1000 obligatorios para SQLite y repos
     chown -R "$FORGEJO_UID:$FORGEJO_UID" "$FORGEJO_DATOS"
     echo "    Datos de Forgejo restaurados"
 }
