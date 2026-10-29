@@ -383,8 +383,8 @@ FORGEJO_UID=1000                 # el mismo USER_UID/USER_GID de compose.yaml
 
 forgejo_entorno() {              # variables que lee compose.yaml en el servicio git
     export DOMINIO
-    # Forzamos siempre el bloqueo si hay base de datos O si app.ini ya tiene INSTALL_LOCK = true
-    if [ -f "$FORGEJO_DATOS/gitea/gitea.db" ] || grep -q "INSTALL_LOCK *= *true" "$FORGEJO_DATOS/gitea/conf/app.ini" 2>/dev/null; then 
+    # Solo se activa el bloqueo SI LA BASE DE DATOS YA EXISTE en el disco
+    if [ -f "$FORGEJO_DATOS/gitea/gitea.db" ]; then 
         FORGEJO_INSTALL_LOCK=true
     else 
         FORGEJO_INSTALL_LOCK=false
@@ -410,7 +410,7 @@ forgejo_restaurar() {
     fi
 
     mkdir -p "$FORGEJO_DATOS/gitea/conf" "$FORGEJO_DATOS/git/repositories"
-    # app.ini del origen: lleva SECRET_KEY e INTERNAL_TOKEN, sin ellos no se descifran ni los tokens ni el 2FA
+    # app.ini del origen: lleva SECRET_KEY e INTERNAL_TOKEN
     if [ -f "$tmp/app.ini" ]; then cp "$tmp/app.ini" "$FORGEJO_DATOS/gitea/conf/app.ini"; fi
     if [ -d "$tmp/data" ];  then cp -a "$tmp/data/."  "$FORGEJO_DATOS/gitea/"; fi
     if [ -d "$tmp/repos" ]; then cp -a "$tmp/repos/." "$FORGEJO_DATOS/git/repositories/"; fi
@@ -423,11 +423,10 @@ forgejo_restaurar() {
     fi
     rm -rf "$tmp"
 
-    # CORRECCIÓN: Garantizar que el usuario 1000 de Docker sea el dueño de los datos descomprimidos
+    # Garantizar que el usuario 1000 del contenedor sea dueño de la base de datos y repositorios restaurados
     chown -R "$FORGEJO_UID:$FORGEJO_UID" "$FORGEJO_DATOS"
     echo "    Datos de Forgejo restaurados"
 }
-
 forgejo_ssh_preparar() {         # claves del servidor y permisos que exige sshd dentro del contenedor
     mkdir -p "$FORGEJO_DATOS/ssh" "$FORGEJO_DATOS/git/.ssh"
     # Misma huella que el Forgejo de origen. Si no hay claves, el contenedor genera unas nuevas.
@@ -456,12 +455,11 @@ forgejo_ssh_activar() {          # con el contenedor en marcha: authorized_keys 
 
 forgejo() {
     echo "== Forgejo (datos de otro Forgejo y SSH)"
-    forgejo_restaurar
-    forgejo_ssh_preparar
-    forgejo_entorno
+    forgejo_restaurar          # 1. PRIMERO restauro el .zip (crea gitea.db)
+    forgejo_ssh_preparar       # 2. SEGUNDO preparo permisos
+    forgejo_entorno            # 3. TERCERO evalúo FORGEJO_INSTALL_LOCK (ahora sí verá que existe gitea.db)
     if [ -f "$FORGEJO_DATOS/gitea/gitea.db" ]; then forgejo_ssh_activar; fi
 }
-
 
 web() {
     echo "== Servidor Web, Base de Datos y Forgejo"
