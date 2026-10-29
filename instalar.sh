@@ -383,19 +383,23 @@ FORGEJO_UID=1000                 # el mismo USER_UID/USER_GID de compose.yaml
 
 forgejo_entorno() {              # variables que lee compose.yaml en el servicio git
     export DOMINIO
-    if [ -f "$FORGEJO_DATOS/gitea/gitea.db" ]; then FORGEJO_INSTALL_LOCK=true   # ya hay usuarios: sin asistente
-    else FORGEJO_INSTALL_LOCK=false; fi
+    # Forzamos siempre el bloqueo si hay base de datos O si app.ini ya tiene INSTALL_LOCK = true
+    if [ -f "$FORGEJO_DATOS/gitea/gitea.db" ] || grep -q "INSTALL_LOCK *= *true" "$FORGEJO_DATOS/gitea/conf/app.ini" 2>/dev/null; then 
+        FORGEJO_INSTALL_LOCK=true
+    else 
+        FORGEJO_INSTALL_LOCK=false
+    fi
     export FORGEJO_INSTALL_LOCK
 }
 
 forgejo_restaurar() {
     if [ -f "$FORGEJO_DATOS/gitea/gitea.db" ]; then
-        echo "   Forgejo ya tiene datos: no restauro nada"; return 0
+        echo "    Forgejo ya tiene datos: no restauro nada"; return 0
     fi
     if [ ! -f "$FORGEJO_DUMP" ]; then
-        echo "   No hay $FORGEJO_DUMP: Forgejo arrancará vacío (asistente inicial)"; return 0
+        echo "    No hay $FORGEJO_DUMP: Forgejo arrancará vacío (asistente inicial)"; return 0
     fi
-    echo "   Restaurando Forgejo desde $FORGEJO_DUMP"
+    echo "    Restaurando Forgejo desde $FORGEJO_DUMP"
     apt-get install -y unzip sqlite3 >/dev/null
     docker rm -f forgejo 2>/dev/null || true
 
@@ -418,7 +422,10 @@ forgejo_restaurar() {
         else echo "ERROR: el zip no trae base de datos (*-db.sql). Contenido:"; unzip -l "$FORGEJO_DUMP" | head -20; rm -rf "$tmp"; exit 1; fi
     fi
     rm -rf "$tmp"
-    echo "   Datos de Forgejo restaurados"
+
+    # CORRECCIÓN: Garantizar que el usuario 1000 de Docker sea el dueño de los datos descomprimidos
+    chown -R "$FORGEJO_UID:$FORGEJO_UID" "$FORGEJO_DATOS"
+    echo "    Datos de Forgejo restaurados"
 }
 
 forgejo_ssh_preparar() {         # claves del servidor y permisos que exige sshd dentro del contenedor
