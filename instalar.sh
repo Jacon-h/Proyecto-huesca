@@ -393,42 +393,52 @@ forgejo_entorno() {              # variables que lee compose.yaml en el servicio
 }
 
 forgejo_restaurar() {
-    if [ -f "$FORGEJO_DATOS/gitea/gitea.db" ]; then
-        echo "    Forgejo ya tiene datos: no restauro nada"; return 0
-    fi
-    if [ ! -f "$FORGEJO_DUMP" ]; then
-        echo "    No hay $FORGEJO_DUMP: Forgejo arrancará vacío (asistente inicial)"; return 0
-    fi
-    echo "    Restaurando Forgejo desde $FORGEJO_DUMP"
-    apt-get install -y unzip sqlite3 >/dev/null
-    docker rm -f forgejo 2>/dev/null || true
+    # Si existe el zip de respaldo Y la base de datos no tiene datos (o es la por defecto), forzamos restauración
+    if [ -f "$FORGEJO_DUMP" ]; then
+        # Si la base de datos no existe o está vacía/recién creada (menos de 50KB), restauramos
+        if [ ! -f "$FORGEJO_DATOS/gitea/gitea.db" ] || [ "$(stat -c%s "$FORGEJO_DATOS/gitea/gitea.db" 2>/dev/null || echo 0)" -lt 50000 ]; then
+            echo "    Restaurando Forgejo desde $FORGEJO_DUMP..."
+            apt-get install -y unzip sqlite3 >/dev/null 2>&1 || true
+            docker rm -f forgejo 2>/dev/null || true
 
-    local tmp; tmp=$(mktemp -d)
-    unzip -q "$FORGEJO_DUMP" -d "$tmp"
-    if [ -f "$tmp/app.ini" ] && ! grep -qiE '^DB_TYPE *= *sqlite3' "$tmp/app.ini"; then
-        echo "ERROR: el Forgejo de origen no usa SQLite3; este instalador solo restaura SQLite3."; rm -rf "$tmp"; exit 1
+            local tmp; tmp=$(mktemp -d)
+            unzip -q "$FORGEJO_DUMP" -d "$tmp"
+
+            mkdir -p "$FORGEJO_DATOS/gitea/conf" "$FORGEJO_DATOS/git/repositories"
+            
+            # Copiar configuración, datos de gitea y repositorios
+            if [ -f "$tmp/app.ini" ]; then cp "$tmp/app.ini" "$FORGEJO_DATOS/gitea/conf/app.ini"; fi
+            if [ -d "$tmp/data" ];  then cp -a "$tmp/data/."  "$FORGEJO_DATOS/gitea/"; fi
+            if [ -d "$tmp/repos" ]; then cp -a "$tmp/repos/." "$FORGEJO_DATOS/git/repositories/"; fi
+
+            # Si el dump trae volcado SQL (*-db.sql), lo inyectamos sobreescribiendo gitea.db
+            local sql; sql=$(ls "$tmp"/*-db.sql 2>/dev/null | head -1 || true)
+            if [ -n "$sql" ]; then
+                rm -f "$FORGEJO_DATOS/gitea/gitea.db"
+                sqlite3 "$FORGEJO_DATOS/gitea/gitea.db" < "$sql"
+            fi
+            rm -rf "$tmp"
+
+            # 1. FORZAR el bloqueo de instalación en el app.ini extraído
+            if [ -f "$FORGEJO_DATOS/gitea/conf/app.ini" ]; then
+                if grep -q "INSTALL_LOCK" "$FORGEJO_DATOS/gitea/conf/app.ini"; then
+                    sed -i 's/INSTALL_LOCK.*/INSTALL_LOCK = true/' "$FORGEJO_DATOS/gitea/conf/app.ini"
+                else
+                    echo -e "\n[security]\nINSTALL_LOCK = true" >> "$FORGEJO_DATOS/gitea/conf/app.ini"
+                fi
+            fi
+
+            # 2. Corregir permisos obligatorios (UID 1000)
+            chown -R "$FORGEJO_UID:$FORGEJO_UID" "$FORGEJO_DATOS"
+            echo "    Datos de Forgejo restaurados correctamente."
+        else
+            echo "    Forgejo ya cuenta con una base de datos activa con datos: omitiendo restauración."
+        fi
+    else
+        if [ ! -f "$FORGEJO_DATOS/gitea/gitea.db" ]; then
+            echo "    No hay $FORGEJO_DUMP: Forgejo arrancará vacío (asistente inicial)."
+        fi
     fi
-
-    mkdir -p "$FORGEJO_DATOS/gitea/conf" "$FORGEJO_DATOS/git/repositories"
-    if [ -f "$tmp/app.ini" ]; then cp "$tmp/app.ini" "$FORGEJO_DATOS/gitea/conf/app.ini"; fi
-    if [ -d "$tmp/data" ];  then cp -a "$tmp/data/."  "$FORGEJO_DATOS/gitea/"; fi
-    if [ -d "$tmp/repos" ]; then cp -a "$tmp/repos/." "$FORGEJO_DATOS/git/repositories/"; fi
-
-    if [ ! -f "$FORGEJO_DATOS/gitea/gitea.db" ]; then
-        local sql; sql=$(ls "$tmp"/*-db.sql 2>/dev/null | head -1 || true)
-        if [ -n "$sql" ]; then sqlite3 "$FORGEJO_DATOS/gitea/gitea.db" < "$sql"
-        else echo "ERROR: el zip no trae base de datos (*-db.sql). Contenido:"; unzip -l "$FORGEJO_DUMP" | head -20; rm -rf "$tmp"; exit 1; fi
-    fi
-    rm -rf "$tmp"
-
-    # CORRECCIÓN 1: Asegurar que app.ini tenga INSTALL_LOCK = true localmente
-    if [ -f "$FORGEJO_DATOS/gitea/conf/app.ini" ]; then
-        sed -i 's/INSTALL_LOCK.*/INSTALL_LOCK = true/' "$FORGEJO_DATOS/gitea/conf/app.ini"
-    fi
-
-    # CORRECCIÓN 2: Permisos 1000:1000 obligatorios para SQLite y repos
-    chown -R "$FORGEJO_UID:$FORGEJO_UID" "$FORGEJO_DATOS"
-    echo "    Datos de Forgejo restaurados"
 }
 forgejo_ssh_preparar() {         # claves del servidor y permisos que exige sshd dentro del contenedor
     mkdir -p "$FORGEJO_DATOS/ssh" "$FORGEJO_DATOS/git/.ssh"
