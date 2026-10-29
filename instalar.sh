@@ -393,11 +393,16 @@ forgejo_entorno() {              # variables que lee compose.yaml en el servicio
 }
 
 forgejo_restaurar() {
-    # Si existe el zip de respaldo Y la base de datos no tiene datos (o es la por defecto), forzamos restauración
     if [ -f "$FORGEJO_DUMP" ]; then
-        # Si la base de datos no existe o está vacía/recién creada (menos de 50KB), restauramos
-        if [ ! -f "$FORGEJO_DATOS/gitea/gitea.db" ] || [ "$(stat -c%s "$FORGEJO_DATOS/gitea/gitea.db" 2>/dev/null || echo 0)" -lt 50000 ]; then
-            echo "    Restaurando Forgejo desde $FORGEJO_DUMP..."
+        # Contamos cuántos usuarios existen en la base de datos (si no existe o da 0, está vacía)
+        local num_usuarios=0
+        if [ -f "$FORGEJO_DATOS/gitea/gitea.db" ]; then
+            num_usuarios=$(sqlite3 "$FORGEJO_DATOS/gitea/gitea.db" "SELECT COUNT(*) FROM user;" 2>/dev/null || echo 0)
+        fi
+
+        # Si no hay usuarios reales, forzamos la restauración del .zip
+        if [ "$num_usuarios" -eq 0 ]; then
+            echo "    Base de datos vacía o no existente. Restaurando desde $FORGEJO_DUMP..."
             apt-get install -y unzip sqlite3 >/dev/null 2>&1 || true
             docker rm -f forgejo 2>/dev/null || true
 
@@ -405,13 +410,10 @@ forgejo_restaurar() {
             unzip -q "$FORGEJO_DUMP" -d "$tmp"
 
             mkdir -p "$FORGEJO_DATOS/gitea/conf" "$FORGEJO_DATOS/git/repositories"
-            
-            # Copiar configuración, datos de gitea y repositorios
             if [ -f "$tmp/app.ini" ]; then cp "$tmp/app.ini" "$FORGEJO_DATOS/gitea/conf/app.ini"; fi
             if [ -d "$tmp/data" ];  then cp -a "$tmp/data/."  "$FORGEJO_DATOS/gitea/"; fi
             if [ -d "$tmp/repos" ]; then cp -a "$tmp/repos/." "$FORGEJO_DATOS/git/repositories/"; fi
 
-            # Si el dump trae volcado SQL (*-db.sql), lo inyectamos sobreescribiendo gitea.db
             local sql; sql=$(ls "$tmp"/*-db.sql 2>/dev/null | head -1 || true)
             if [ -n "$sql" ]; then
                 rm -f "$FORGEJO_DATOS/gitea/gitea.db"
@@ -419,7 +421,7 @@ forgejo_restaurar() {
             fi
             rm -rf "$tmp"
 
-            # 1. FORZAR el bloqueo de instalación en el app.ini extraído
+            # Forzar INSTALL_LOCK = true en app.ini
             if [ -f "$FORGEJO_DATOS/gitea/conf/app.ini" ]; then
                 if grep -q "INSTALL_LOCK" "$FORGEJO_DATOS/gitea/conf/app.ini"; then
                     sed -i 's/INSTALL_LOCK.*/INSTALL_LOCK = true/' "$FORGEJO_DATOS/gitea/conf/app.ini"
@@ -428,15 +430,10 @@ forgejo_restaurar() {
                 fi
             fi
 
-            # 2. Corregir permisos obligatorios (UID 1000)
             chown -R "$FORGEJO_UID:$FORGEJO_UID" "$FORGEJO_DATOS"
             echo "    Datos de Forgejo restaurados correctamente."
         else
-            echo "    Forgejo ya cuenta con una base de datos activa con datos: omitiendo restauración."
-        fi
-    else
-        if [ ! -f "$FORGEJO_DATOS/gitea/gitea.db" ]; then
-            echo "    No hay $FORGEJO_DUMP: Forgejo arrancará vacío (asistente inicial)."
+            echo "    Forgejo ya cuenta con usuarios en la BBDD: omitiendo restauración."
         fi
     fi
 }
