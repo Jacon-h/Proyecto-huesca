@@ -1,0 +1,11 @@
+# Estructura base del directorio de la sede Huesca.
+# La carga la fase "ldap" de instalar.sh (puede repetirse: si ya existe, no pasa nada).
+# Los DN coinciden con LDAP_USERS_DN y LDAP_GROUPS_DN del servicio "lam" en compose.yaml.
+
+dn: ou=investigadores,dc=huesca,dc=empresa,dc=lan
+objectClass: organizationalUnit
+ou: investigadores
+
+dn: ou=grupos,dc=huesca,dc=empresa,dc=lan
+objectClass: organizationalUnit
+ou: grupos
