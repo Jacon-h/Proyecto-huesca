@@ -20,3 +20,6 @@ intranet IN CNAME servidor
 git      IN CNAME servidor
 db       IN CNAME servidor
 gns3     IN CNAME servidor
+
+ldap     IN CNAME servidor
+lam      IN CNAME servidor
