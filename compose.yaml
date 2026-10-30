@@ -114,3 +114,13 @@ services:
     ports: ["8080:80"]
     depends_on: [ldap]
     restart: unless-stopped
+volumes:
+  datos:
+  ldap_data:
+  ldap_config:
+  ldap_certs:
+
+networks:
+  frontal:
+  trasera:
+    internal: true
