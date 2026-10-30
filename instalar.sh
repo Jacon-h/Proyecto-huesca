@@ -35,11 +35,11 @@ comprobar() {
         exit 1
     fi
     set -a; source .env; set +a
-    for v in DB_NAME DB_PASSWORD INTRANET_USUARIO INTRANET_CLAVE; do
+    for v in DB_NAME DB_PASSWORD INTRANET_USUARIO INTRANET_CLAVE LDAP_ADMIN_PASSWORD LDAP_CONFIG_PASSWORD LAM_PASSWORD; do
         [ -n "${!v:-}" ] || { echo "ERROR: falta $v en .env"; exit 1; }
     done
     docker compose version >/dev/null || { echo "ERROR: falta el plugin docker compose"; exit 1; }
-    echo "   Todo listo para instalar la sede $SEDE"
+    echo "    Todo listo para instalar la sede $SEDE"
 }
 
 
@@ -104,7 +104,7 @@ sistema() {
 liberar_puerto_53() {
     # Ubuntu arranca systemd-resolved escuchando en 127.0.0.53:53 y BIND no puede usar el 53.
     if ss -lntup 2>/dev/null | grep -qE '127\.0\.0\.53(%lo)?:53 '; then
-        echo "   Liberando el puerto 53 (systemd-resolved)"
+        echo "    Liberando el puerto 53 (systemd-resolved)"
         mkdir -p /etc/systemd/resolved.conf.d
         printf '[Resolve]\nDNSStubListener=no\n' > /etc/systemd/resolved.conf.d/sede-nostub.conf
         ln -sf /run/systemd/resolve/resolv.conf /etc/resolv.conf   # si no, el servidor se queda sin resolver
@@ -143,7 +143,7 @@ dns() {
 
     # Configuración que hay que cargar en el DNS secundario (vive en GNS3, no en este servidor)
     envsubst "$VARS" < dns/secundario/named.conf.local.tpl > generado/dns-secundario/named.conf.local
-    echo "   Config del secundario generada en generado/dns-secundario/named.conf.local (ver dns/README.md)"
+    echo "    Config del secundario generada en generado/dns-secundario/named.conf.local (ver dns/README.md)"
 
     # --- Validar ANTES de tocar el contenedor: si hay un error, el DNS que ya funciona sigue vivo
     docker pull -q internetsystemsconsortium/bind9:9.18 >/dev/null
@@ -213,13 +213,13 @@ gns3_instalar_servidor() {
 
     if command -v gns3server &>/dev/null && command -v ubridge &>/dev/null \
        && command -v vpcs &>/dev/null && command -v dynamips &>/dev/null; then
-        echo "   GNS3 ya está instalado ($(gns3server --version 2>/dev/null | tail -1))"
+        echo "    GNS3 ya está instalado ($(gns3server --version 2>/dev/null | tail -1))"
     else
-        echo "   Instalando GNS3 (puede tardar unos minutos; detalle en $GNS3_LOG)"
+        echo "    Instalando GNS3 (puede tardar unos minutos; detalle en $GNS3_LOG)"
         if ( gns3_paquetes_ppa ) >>"$GNS3_LOG" 2>&1; then
-            echo "   Instalado desde el PPA oficial de GNS3"
+            echo "    Instalado desde el PPA oficial de GNS3"
         else
-            echo "   El PPA no ha servido; instalo con pip y compilo ubridge y vpcs"
+            echo "    El PPA no ha servido; instalo con pip y compilo ubridge y vpcs"
             add-apt-repository -r -y ppa:gns3/ppa >>"$GNS3_LOG" 2>&1 || true
             if ! ( gns3_paquetes_pip ) >>"$GNS3_LOG" 2>&1; then
                 echo "ERROR: no he podido instalar GNS3. Últimas líneas de $GNS3_LOG:"; tail -15 "$GNS3_LOG"; exit 1
@@ -264,7 +264,7 @@ gns3_imagen_dns_secundario() {
     envsubst '${IP_DNS_SECUNDARIO} ${PREFIJO_INTERNA} ${IP_INTERNA_SOLO}' \
         < gns3/dns-secundario/entrypoint.sh.tpl > "$ctx/entrypoint.sh"
     docker build -q -t dns-secundario:1.0 "$ctx" >/dev/null
-    echo "   Imagen dns-secundario:1.0 lista"
+    echo "    Imagen dns-secundario:1.0 lista"
 }
 
 gns3_servicio() {
@@ -332,7 +332,7 @@ gns3_proyecto() {
     id=$(python3 -c 'import sys,json,zipfile; print(json.loads(zipfile.ZipFile(sys.argv[1]).read("project.gns3"))["project_id"])' "$GNS3_PROYECTO")
     code=$(curl -s -o /dev/null -w '%{http_code}' "$GNS3_API/projects/$id")
     if [ "$code" = 404 ]; then
-        echo "   Importando el proyecto de la red interna"
+        echo "    Importando el proyecto de la red interna"
         gns3_importar "$id" || { echo "ERROR: no he podido importar $GNS3_PROYECTO"; exit 1; }
     fi
 
@@ -343,13 +343,13 @@ gns3_proyecto() {
         parados=$(gns3_nodos_parados "$id")
         [ "$parados" = 0 ] && break
         if [ "$intento" = 2 ]; then       # último recurso: proyecto limpio (p. ej. si borraron su contenedor)
-            echo "   Los nodos no arrancan; vuelvo a importar el proyecto desde cero"
+            echo "    Los nodos no arrancan; vuelvo a importar el proyecto desde cero"
             curl -s -o /dev/null -X DELETE "$GNS3_API/projects/$id"
             gns3_importar "$id" || true
         fi
     done
 
-    if [ "$parados" = 0 ]; then echo "   Proyecto 'red huesca' abierto y con todos los nodos arrancados"
+    if [ "$parados" = 0 ]; then echo "    Proyecto 'red huesca' abierto y con todos los nodos arrancados"
     else
         echo "AVISO: $parados nodo(s) de GNS3 sin arrancar (¿existe $BRIDGE_INTERNA? ¿está la imagen dns-secundario:1.0?)"
         echo "   ubridge: $(ls -l "$(command -v ubridge)" 2>/dev/null | awk '{print $1, $3, $4}')  caps: $(getcap "$(command -v ubridge)" 2>/dev/null)"
@@ -402,7 +402,7 @@ forgejo_restaurar() {
 
         # Si no hay usuarios reales, forzamos la restauración del .zip
         if [ "$num_usuarios" -eq 0 ]; then
-            echo "    Base de datos vacía o no existente. Restaurando desde $FORGEJO_DUMP..."
+            echo "     Base de datos vacía o no existente. Restaurando desde $FORGEJO_DUMP..."
             apt-get install -y unzip sqlite3 >/dev/null 2>&1 || true
             docker rm -f forgejo 2>/dev/null || true
 
@@ -431,9 +431,9 @@ forgejo_restaurar() {
             fi
 
             chown -R "$FORGEJO_UID:$FORGEJO_UID" "$FORGEJO_DATOS"
-            echo "    Datos de Forgejo restaurados correctamente."
+            echo "     Datos de Forgejo restaurados correctamente."
         else
-            echo "    Forgejo ya cuenta con usuarios en la BBDD: omitiendo restauración."
+            echo "     Forgejo ya cuenta con usuarios en la BBDD: omitiendo restauración."
         fi
     fi
 }
@@ -472,7 +472,7 @@ forgejo() {
 }
 
 web() {
-    echo "== Servidor Web, Base de Datos y Forgejo"
+    echo "== Servidor Web, Base de Datos, Forgejo y OpenLDAP/LAM"
 
     # .htpasswd generado desde .env. Se escribe SIEMPRE con la clave actual.
     mkdir -p secretos
@@ -481,9 +481,9 @@ web() {
     chmod 755 secretos
     chmod 644 secretos/intranet.htpasswd
 
-    forgejo_entorno                                         # DOMINIO y bloqueo del asistente para el servicio git
-    docker rm -f mi-apache mi-postgres forgejo 2>/dev/null || true
-    docker compose up -d --build --force-recreate web      # arrastra db y git por depends_on
+    forgejo_entorno                                          # DOMINIO y bloqueo del asistente para el servicio git
+    docker rm -f mi-apache mi-postgres forgejo ldap lam 2>/dev/null || true
+    docker compose up -d --build --force-recreate web ldap lam      # arrastra db y git por depends_on
 }
 
 
@@ -500,7 +500,7 @@ verificar() {
     fi
 
     sleep 5
-    for c in mi-bind9 mi-apache mi-postgres forgejo; do
+    for c in mi-bind9 mi-apache mi-postgres forgejo ldap lam; do
         estado=$(docker inspect -f '{{.State.Running}} {{.RestartCount}}' "$c" 2>/dev/null || echo "no-existe")
         if [ "$estado" = "true 0" ]; then echo "OK    contenedor $c"
         else echo "FALLO contenedor $c ($estado)"; docker logs --tail 15 "$c" 2>&1 || true; FALLOS=1; fi
