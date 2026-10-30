@@ -98,7 +98,7 @@ services:
       - ldap_config:/etc/ldap/slapd.d
       - ldap_certs:/container/service/slapd/assets/certs
       - ./ldif:/ldif:ro
-    networks: [trasera]              
+    networks: [frontal]              
     restart: unless-stopped
 
   lam:
@@ -114,5 +114,5 @@ services:
       LAM_PASSWORD: ${LAM_PASSWORD}
     ports: ["8080:80"]
     depends_on: [ldap]
-    networks: [frontal, trasera]      
+    networks: [frontal]      
     restart: unless-stopped
