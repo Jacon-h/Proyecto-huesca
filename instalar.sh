@@ -481,11 +481,14 @@ web() {
     chmod 755 secretos
     chmod 644 secretos/intranet.htpasswd
 
-    forgejo_entorno                                          # DOMINIO y bloqueo del asistente para el servicio git
-    docker rm -f mi-apache mi-postgres forgejo ldap lam 2>/dev/null || true
+    forgejo_entorno                                           # DOMINIO y bloqueo del asistente para el servicio git
+    
+    # Limpiar contenedores y volúmenes de LDAP para forzar la autocarga de los .ldif
+    docker compose down ldap lam -v 2>/dev/null || true
+    docker rm -f mi-apache mi-postgres forgejo 2>/dev/null || true
+
     docker compose up -d --build --force-recreate web ldap lam      # arrastra db y git por depends_on
 }
-
 
 verificar() {
     echo "== Verificando la sede"
