@@ -1,4 +1,3 @@
-# Unidades Organizativas base
 dn: ou=investigadores,dc=huesca,dc=empresa,dc=lan
 objectClass: organizationalUnit
 ou: investigadores
@@ -18,38 +17,3 @@ ou: servicios
 dn: ou=politicas,dc=huesca,dc=empresa,dc=lan
 objectClass: organizationalUnit
 ou: politicas
-
-# Grupos POSIX y Administrativos
-dn: cn=investigadores,ou=grupos,dc=huesca,dc=empresa,dc=lan
-objectClass: posixGroup
-cn: investigadores
-gidNumber: 10000
-
-dn: cn=visitas,ou=grupos,dc=huesca,dc=empresa,dc=lan
-objectClass: posixGroup
-cn: visitas
-gidNumber: 10001
-
-dn: cn=admins,ou=grupos,dc=huesca,dc=empresa,dc=lan
-objectClass: groupOfNames
-cn: admins
-member: cn=admin,dc=huesca,dc=empresa,dc=lan
-
-# Cuentas de Servicio
-dn: cn=svc-lectura,ou=servicios,dc=huesca,dc=empresa,dc=lan
-objectClass: organizationalRole
-objectClass: simpleSecurityObject
-cn: svc-lectura
-userPassword: {SSHA}ClaveLecturaHash123
-
-dn: cn=recepcion,ou=servicios,dc=huesca,dc=empresa,dc=lan
-objectClass: organizationalRole
-objectClass: simpleSecurityObject
-cn: recepcion
-userPassword: {SSHA}ClaveRecepcionHash123
-
-dn: cn=replica,ou=servicios,dc=huesca,dc=empresa,dc=lan
-objectClass: organizationalRole
-objectClass: simpleSecurityObject
-cn: replica
-userPassword: {SSHA}ClaveReplicaHash123
