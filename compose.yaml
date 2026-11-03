@@ -128,8 +128,3 @@ networks:
   frontal:
   trasera:
     internal: true
-
-networks:
-  frontal:
-  trasera:
-    internal: true
