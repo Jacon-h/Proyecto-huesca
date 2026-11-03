@@ -86,6 +86,7 @@ services:
     image: osixia/openldap:1.5.0
     container_name: ldap
     hostname: ldap.huesca.empresa.lan
+    command: --copy-service
     environment:
       LDAP_ORGANISATION: "Huesca"
       LDAP_DOMAIN: "huesca.empresa.lan"
@@ -99,7 +100,7 @@ services:
       - ldap_config:/etc/ldap/slapd.d
       - ldap_certs:/container/service/slapd/assets/certs
       - ./ldif:/container/service/slapd/assets/config/bootstrap/ldif/custom:ro
-    networks: [frontal]              
+    networks: [frontal]
     restart: unless-stopped
 
   lam:
