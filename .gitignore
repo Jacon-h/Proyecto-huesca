@@ -5,7 +5,6 @@ sede.env
 # Lo que instalar.sh genera a partir de .env (htpasswd, cert, etc.)
 secretos/
 generado/
-restauracion/
 
 # Datos del contenedor de Forgejo (base de datos, claves SSH y repositorios)
 forgejo-docker/ssh/
