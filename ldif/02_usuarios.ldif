@@ -26,7 +26,7 @@ uidNumber: 11002
 gidNumber: 10000
 homeDirectory: /home/andreas
 loginShell: /bin/bash
-userPassword: andeas
+userPassword: andreas
 
 dn: uid=jaime,ou=investigadores,dc=huesca,dc=empresa,dc=lan
 objectClass: inetOrgPerson
