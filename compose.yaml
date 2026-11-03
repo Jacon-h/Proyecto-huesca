@@ -18,7 +18,7 @@ services:
     environment:                   # nombres que lee el PHP con getenv()
       DB_HOST: db
       DB_NAME: ${DB_NAME}
-      DB_USER: usuario_app
+      DB_USER: ${DB_USER}
       DB_PASSWORD: ${DB_PASSWORD}
     networks: [frontal, trasera]
     depends_on:
@@ -34,7 +34,7 @@ services:
     container_name: mi-postgres
     environment:
       POSTGRES_DB: ${DB_NAME}
-      POSTGRES_USER: usuario_app
+      POSTGRES_USER: ${DB_USER}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
     volumes:
       - datos:/var/lib/postgresql/data
