@@ -34,7 +34,7 @@ services:
     container_name: mi-postgres
     environment:
       POSTGRES_DB: ${DB_NAME}
-      POSTGRES_USER: usuario_app
+      POSTGRES_USER: ${DB_USER}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
     volumes:
       - datos:/var/lib/postgresql/data
