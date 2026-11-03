@@ -482,8 +482,8 @@ access_provider = simple
 simple_allow_groups = investigadores
 ldap_uri = ldap://127.0.0.1:389
 ldap_search_base = dc=huesca,dc=empresa,dc=lan
-ldap_default_bind_dn = cn=svc-lectura,ou=servicios,dc=huesca,dc=empresa,dc=lan
-ldap_default_authtok = CONTRASENA_SVC_LECTURA
+ldap_default_bind_dn = cn=admin,dc=huesca,dc=empresa,dc=lan
+ldap_default_authtok = asir2
 ldap_tls_reqcert = allow
 cache_credentials = true
 EOF
