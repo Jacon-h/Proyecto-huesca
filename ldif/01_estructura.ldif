@@ -40,16 +40,16 @@ dn: cn=svc-lectura,ou=servicios,dc=huesca,dc=empresa,dc=lan
 objectClass: organizationalRole
 objectClass: simpleSecurityObject
 cn: svc-lectura
-userPassword: asir2
+userPassword: ${LDAP_ADMIN_PASSWORD}
 
 dn: cn=recepcion,ou=servicios,dc=huesca,dc=empresa,dc=lan
 objectClass: organizationalRole
 objectClass: simpleSecurityObject
 cn: recepcion
-userPassword: asir2
+userPassword: ${LDAP_ADMIN_PASSWORD}
 
 dn: cn=replica,ou=servicios,dc=huesca,dc=empresa,dc=lan
 objectClass: organizationalRole
 objectClass: simpleSecurityObject
 cn: replica
-userPassword: asir2
+userPassword: ${LDAP_ADMIN_PASSWORD}
