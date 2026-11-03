@@ -15,7 +15,7 @@ services:
     volumes:
       # El fichero lo genera instalar.sh a partir de .env (no va en Git)
       - ./secretos/intranet.htpasswd:/etc/apache2/.htpasswd:ro
-    environment:                   # nombres que lee el PHP con getenv()
+    environment:                    # nombres que lee el PHP con getenv()
       DB_HOST: db
       DB_NAME: ${DB_NAME}
       DB_USER: usuario_app
@@ -80,6 +80,7 @@ services:
       - ./generado/dns:/etc/bind:ro   # lo genera instalar.sh dns a partir de dns/*.tpl y sede.env
     command: ["-g", "-c", "/etc/bind/named.conf", "-u", "bind"]
     restart: unless-stopped
+
   # ============================================================ OpenLDAP · LAM
   ldap:
     image: osixia/openldap:1.5.0
@@ -97,7 +98,7 @@ services:
       - ldap_data:/var/lib/ldap
       - ldap_config:/etc/ldap/slapd.d
       - ldap_certs:/container/service/slapd/assets/certs
-      - ./ldif:/ldif:ro
+      - ./ldif:/container/service/slapd/assets/config/bootstrap/ldif/custom:ro
     networks: [frontal]              
     restart: unless-stopped
 
@@ -122,6 +123,11 @@ volumes:
   ldap_data:
   ldap_config:
   ldap_certs:
+
+networks:
+  frontal:
+  trasera:
+    internal: true
 
 networks:
   frontal:
