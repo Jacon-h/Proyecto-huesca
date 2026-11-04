@@ -142,6 +142,20 @@ liberar_puerto_53() {
     fi
 }
 
+# Clave TSIG: firma las transferencias de zona entre el DNS principal y el secundario de GNS3.
+# Se crea UNA sola vez (si cambiara, el secundario dejaría de recibir las zonas) y se reparte
+# a BIND (generado/dns/tsig.conf) y al contexto de la imagen del secundario.
+clave_tsig() {
+    mkdir -p generado/dns
+    if [ ! -f generado/tsig.conf ]; then
+        ( umask 077
+          printf 'key "clave-transferencia" {\n    algorithm hmac-sha256;\n    secret "%s";\n};\n' \
+                 "$(openssl rand -base64 32)" > generado/tsig.conf )
+        echo "    Clave TSIG creada en generado/tsig.conf"
+    fi
+    install -m 644 generado/tsig.conf generado/dns/tsig.conf
+}
+
 dns() {
     titulo "Servidor DNS (BIND9)"
     liberar_puerto_53
@@ -168,6 +182,7 @@ dns() {
     envsubst "$VARS" < dns/interna/db.inversa.tpl > generado/dns/interna/db.inversa
     envsubst "$VARS" < dns/aula/db.directa.tpl    > "generado/dns/aula/db.$DOMINIO"
     chmod -R a+rX generado/dns
+    clave_tsig
 
     # Configuración del DNS secundario (vive en GNS3, no en este servidor)
     envsubst "$VARS" < dns/secundario/named.conf.local.tpl > generado/dns-secundario/named.conf.local
@@ -286,6 +301,8 @@ gns3_imagen_dns_secundario() {
     rm -rf "$ctx"; mkdir -p "$ctx"
     cp gns3/dns-secundario/Dockerfile gns3/dns-secundario/named.conf.options "$ctx/"
     cp generado/dns-secundario/named.conf.local "$ctx/"
+    clave_tsig
+    cp generado/tsig.conf "$ctx/"
     export IP_DNS_SECUNDARIO IP_INTERNA_SOLO PREFIJO_INTERNA
     envsubst '${IP_DNS_SECUNDARIO} ${PREFIJO_INTERNA} ${IP_INTERNA_SOLO}' \
         < gns3/dns-secundario/entrypoint.sh.tpl > "$ctx/entrypoint.sh"
