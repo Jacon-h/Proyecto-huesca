@@ -75,14 +75,51 @@ services:
   dns:
     image: internetsystemsconsortium/bind9:9.18
     container_name: mi-bind9
-    network_mode: host                 # escucha en la IP del aula, puerto 53
+    network_mode: host              # escucha en la IP del aula, puerto 53
     volumes:
       - ./generado/dns:/etc/bind:ro   # lo genera instalar.sh dns a partir de dns/*.tpl y sede.env
     command: ["-g", "-c", "/etc/bind/named.conf", "-u", "bind"]
     restart: unless-stopped
 
+  # ============================================================ ldap · SRI
+  ldap:
+    image: osixia/openldap:1.5.0
+    container_name: ldap
+    environment:
+      LDAP_ORGANISATION: "Sede Huesca"
+      LDAP_DOMAIN: "huesca.empresa.lan"
+      LDAP_ADMIN_PASSWORD: "${LDAP_ADMIN_PASSWORD}"
+      LDAP_CONFIG_PASSWORD: "${LDAP_CONFIG_PASSWORD}"
+    ports:
+      - "389:389"
+      - "636:636"
+    volumes:
+      - ./ldif:/container/service/slapd/assets/config/bootstrap/ldif/custom:ro
+      - datos_ldap_db:/var/lib/ldap
+      - datos_ldap_config:/etc/ldap/slapd.d
+    networks: [frontal, trasera]
+    restart: unless-stopped
+
+  # ============================================================ lam · SRI
+  lam:
+    image: ldapaccountmanager/lam:stable
+    container_name: lam
+    ports:
+      - "8080:80"
+    environment:
+      LAM_PASSWORD: "${LAM_PASSWORD}"
+      LDAP_SERVER: "ldap://ldap:389"
+      LDAP_DOMAIN: "huesca.empresa.lan"
+      LDAP_BASE_DN: "dc=huesca,dc=empresa,dc=lan"
+    networks: [frontal, trasera]
+    depends_on:
+      - ldap
+    restart: unless-stopped
+
 volumes:
   datos:
+  datos_ldap_db:
+  datos_ldap_config:
 
 networks:
   frontal:
