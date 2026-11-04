@@ -472,18 +472,26 @@ forgejo() {
 }
 
 web() {
-    echo "== Servidor Web, Base de Datos y Forgejo"
+    echo "== Servidor Web, Base de Datos, Forgejo y OpenLDAP/LAM"
 
-    # .htpasswd generado desde .env. Se escribe SIEMPRE con la clave actual.
     mkdir -p secretos
-    [ -d secretos/intranet.htpasswd ] && rm -rf secretos/intranet.htpasswd   # carpeta fantasma que crea Docker
+    [ -d secretos/intranet.htpasswd ] && rm -rf secretos/intranet.htpasswd
     printf '%s:%s\n' "$INTRANET_USUARIO" "$(openssl passwd -apr1 "$INTRANET_CLAVE")" > secretos/intranet.htpasswd
     chmod 755 secretos
     chmod 644 secretos/intranet.htpasswd
 
-    forgejo_entorno                                         # DOMINIO y bloqueo del asistente para el servicio git
+    # Generar LDIF de estructura desde la plantilla si existe
+    if [ -f ldif/01_estructura.ldif.tpl ]; then
+        echo "    Generando ldif/01_estructura.ldif desde plantilla..."
+        envsubst < ldif/01_estructura.ldif.tpl > ldif/01_estructura.ldif
+    fi
+
+    forgejo_entorno
+
+    docker compose down ldap lam -v 2>/dev/null || true
     docker rm -f mi-apache mi-postgres forgejo 2>/dev/null || true
-    docker compose up -d --build --force-recreate web      # arrastra db y git por depends_on
+
+    docker compose up -d --build --force-recreate web ldap lam
 }
 
 
