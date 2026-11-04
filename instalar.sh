@@ -41,17 +41,42 @@ IMAGEN_BIND=internetsystemsconsortium/bind9:9.18
 
 # ================================================================== FASES
 
+# El reloj de la VM se atrasa (pausas, cuelgues de CPU) y entonces apt rechaza los repositorios
+# ("Not live until ...") y los docker build fallan. Se compara con la hora HTTP de un servidor
+# fiable y, si hay más de 60 s de diferencia, se corrige (también en el reloj hardware).
+ajustar_reloj() {
+    command -v curl &>/dev/null || { echo "    AVISO: no hay curl, no compruebo el reloj"; return 0; }
+    local fecha="" url ref ahora dif
+    for url in https://deb.debian.org https://www.google.com; do
+        fecha=$(curl -sI --max-time 5 "$url" 2>/dev/null | tr -d '\r' \
+                | awk -F': ' 'tolower($1)=="date" {print $2; exit}') || true
+        [ -z "$fecha" ] || break
+    done
+    [ -n "$fecha" ] || { echo "    AVISO: no he podido consultar la hora en Internet; no compruebo el reloj"; return 0; }
+    ref=$(date -u -d "$fecha" +%s 2>/dev/null) || return 0
+    ahora=$(date -u +%s)
+    dif=$(( ref - ahora )); [ "$dif" -ge 0 ] || dif=$(( -dif ))
+    if [ "$dif" -gt 60 ]; then
+        echo "    AVISO: el reloj de la VM se desvía $dif s; lo corrijo"
+        date -u -s "@$ref" >/dev/null
+        hwclock --systohc 2>/dev/null || true
+    fi
+    timedatectl set-ntp true 2>/dev/null || true
+}
+
 comprobar() {
     titulo "Comprobando que se puede instalar"
+    ajustar_reloj
     if [ ! -f .env ]; then
         cp .env.example .env
         echo "ERROR: no había .env; lo he creado desde .env.example. Rellénalo (nano .env) y vuelve a ejecutar."
         exit 1
     fi
     set -a; source .env; set +a
-    for v in DB_NAME DB_USER DB_PASSWORD INTRANET_USUARIO INTRANET_CLAVE LDAP_ADMIN_PASSWORD LDAP_CONFIG_PASSWORD LAM_PASSWORD; do
+    for v in DB_NAME DB_USER DB_PASSWORD POSTGRES_PASSWORD INTRANET_USUARIO INTRANET_CLAVE LDAP_ADMIN_PASSWORD LDAP_CONFIG_PASSWORD LAM_PASSWORD; do
         [ -n "${!v:-}" ] || { echo "ERROR: falta $v en .env"; exit 1; }
     done
+    [ "$DB_USER" != postgres ] || { echo "ERROR: DB_USER no puede ser 'postgres' (es el administrador)"; exit 1; }
     docker compose version >/dev/null || { echo "ERROR: falta el plugin docker compose"; exit 1; }
     echo "    Todo listo para instalar la sede $SEDE"
 }
@@ -594,6 +619,11 @@ verificar() {
         if [ "$estado" = "true 0" ]; then bien "contenedor $c"
         else mal "contenedor $c ($estado)"; docker logs --tail 15 "$c" 2>&1 || true; fi
     done
+
+    # Base de datos: el usuario de la web puede leer pero NO borrar
+    r=$(docker exec mi-postgres psql -U "$DB_USER" -d "$DB_NAME" -c "DELETE FROM inventario WHERE false" 2>&1 || true)
+    if echo "$r" | grep -q "permission denied"; then bien "usuario $DB_USER sin permiso de borrado"
+    else mal "usuario $DB_USER: no tiene el permiso esperado (¿existe el rol? $r)"; fi
 
     # SSH de Forgejo (2222): debe enseñar su clave y, si hay claves de origen, ser la misma
     if command -v ssh-keyscan &>/dev/null; then
