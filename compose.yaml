@@ -1,9 +1,9 @@
 # compose.yaml · Todos los contenedores de la sede, en un solo fichero.
 # Se lanza desde la raíz del repositorio. instalar.sh lo hace por fases.
 # Es el ÚNICO compose del proyecto: no debe haber otros en web/ ni dns/.
-
+ 
 services:
-
+ 
   # ============================================================ web · IAW
   web:
     build: ./web
@@ -27,7 +27,7 @@ services:
       git:
         condition: service_started
     restart: unless-stopped
-
+ 
   # ============================================================ db · ASGBD
   db:
     image: postgres:16
@@ -45,7 +45,7 @@ services:
       interval: 5s
       retries: 10
     restart: unless-stopped
-
+ 
   # ============================================================ git · Optativo
   git:
     image: codeberg.org/forgejo/forgejo:1.21
@@ -70,7 +70,7 @@ services:
     # frontal es necesaria: en una red "internal" Docker NO publica los puertos
     networks: [frontal, trasera]
     restart: unless-stopped
-
+ 
   # ============================================================ dns · SRI
   dns:
     image: internetsystemsconsortium/bind9:9.18
@@ -80,11 +80,14 @@ services:
       - ./generado/dns:/etc/bind:ro   # lo genera instalar.sh dns a partir de dns/*.tpl y sede.env
     command: ["-g", "-c", "/etc/bind/named.conf", "-u", "bind"]
     restart: unless-stopped
-
+ 
   # ============================================================ ldap · SRI
   ldap:
     image: osixia/openldap:1.5.0
     container_name: ldap
+    # --copy-service: imprescindible porque ./ldif se monta en solo lectura (:ro).
+    # Sin esto la imagen intenta hacer chown sobre los .ldif, falla y reinicia en bucle.
+    command: --copy-service
     environment:
       LDAP_ORGANISATION: "Sede Huesca"
       LDAP_DOMAIN: "huesca.empresa.lan"
@@ -94,12 +97,13 @@ services:
       - "389:389"
       - "636:636"
     volumes:
+      # Los .ldif de esta carpeta se cargan solos SOLO la primera vez (con la base de datos vacía)
       - ./ldif:/container/service/slapd/assets/config/bootstrap/ldif/custom:ro
       - datos_ldap_db:/var/lib/ldap
       - datos_ldap_config:/etc/ldap/slapd.d
     networks: [frontal, trasera]
     restart: unless-stopped
-
+ 
   # ============================================================ lam · SRI
   lam:
     image: ldapaccountmanager/lam:stable
@@ -111,16 +115,19 @@ services:
       LDAP_SERVER: "ldap://ldap:389"
       LDAP_DOMAIN: "huesca.empresa.lan"
       LDAP_BASE_DN: "dc=huesca,dc=empresa,dc=lan"
+      LDAP_USER: "cn=admin,dc=huesca,dc=empresa,dc=lan"
+      LDAP_USERS_DN: "ou=investigadores,dc=huesca,dc=empresa,dc=lan"
+      LDAP_GROUPS_DN: "ou=grupos,dc=huesca,dc=empresa,dc=lan"
     networks: [frontal, trasera]
     depends_on:
       - ldap
     restart: unless-stopped
-
+ 
 volumes:
   datos:
   datos_ldap_db:
   datos_ldap_config:
-
+ 
 networks:
   frontal:
   trasera:
