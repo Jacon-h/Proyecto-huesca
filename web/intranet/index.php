@@ -3,7 +3,9 @@ $servicios = [
     'Servidor Web (Apache)'        => ['host' => '127.0.0.1', 'port' => 80,   'icono' => '🌐'],
     'Base de Datos (PostgreSQL)'   => ['host' => 'db',        'port' => 5432, 'icono' => '🗄️'],
     'Servicio Git (Forgejo)'       => ['host' => 'git',       'port' => 3000, 'icono' => '📦'],
-    'Servidor DNS (BIND9)'         => ['host' => 'host.docker.internal', 'port' => 53, 'icono' => '🌍']
+    'Servidor DNS (BIND9)'         => ['host' => 'host.docker.internal', 'port' => 53, 'icono' => '🌍'],
+    'Directorio (OpenLDAP)'        => ['host' => 'ldap',      'port' => 389,  'icono' => '🔑'],
+    'Gestor LDAP (LAM)'            => ['host' => 'lam',       'port' => 80,   'icono' => '👥']
 ];
 
 function verificar_puerto($host, $port) {
@@ -36,7 +38,7 @@ function verificar_puerto($host, $port) {
         h2 { font-size: 1.1rem; text-transform: uppercase; letter-spacing: 1px; color: #64748b; margin-bottom: 15px; font-weight: 600; }
         .grid-servicios { display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 15px; margin-bottom: 35px; }
 
-        /* Targeta de Servicio */
+        /* Tarjeta de Servicio */
         .card { background: #1c2541; border: 1px solid #2e3856; border-radius: 12px; padding: 18px 22px; display: flex; align-items: center; justify-content: space-between; transition: transform 0.2s, border-color 0.2s; }
         .card:hover { transform: translateY(-2px); border-color: #38bdf8; }
         .info-servicio { display: flex; align-items: center; gap: 14px; }
@@ -53,7 +55,7 @@ function verificar_puerto($host, $port) {
         .status-fail .dot { background: #ef4444; box-shadow: 0 0 8px #ef4444; }
 
         /* Accesos Rápidos */
-        .grid-links { display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; }
+        .grid-links { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 15px; }
         .btn-link { background: #1c2541; border: 1px solid #2e3856; color: #38bdf8; text-decoration: none; padding: 18px; border-radius: 12px; text-align: center; font-weight: 700; font-size: 0.95rem; transition: all 0.2s ease; display: flex; flex-direction: column; align-items: center; gap: 8px; }
         .btn-link:hover { background: #38bdf8; color: #0b132b; border-color: #38bdf8; transform: translateY(-3px); box-shadow: 0 8px 20px rgba(56, 189, 248, 0.25); }
     </style>
@@ -98,6 +100,9 @@ function verificar_puerto($host, $port) {
             </a>
             <a href="http://intranet.huesca.empresa.lan" class="btn-link">
                 <span>INTRANET</span>
+            </a>
+            <a href="http://lam.huesca.empresa.lan:8080" class="btn-link" target="_blank">
+                <span>LAM (LDAP)</span>
             </a>
         </div>
     </div>

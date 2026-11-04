@@ -1,0 +1,55 @@
+# --- 1. UNIDADES ORGANIZATIVAS ---
+dn: ou=investigadores,dc=huesca,dc=empresa,dc=lan
+objectClass: organizationalUnit
+ou: investigadores
+
+dn: ou=visitas,dc=huesca,dc=empresa,dc=lan
+objectClass: organizationalUnit
+ou: visitas
+
+dn: ou=grupos,dc=huesca,dc=empresa,dc=lan
+objectClass: organizationalUnit
+ou: grupos
+
+dn: ou=servicios,dc=huesca,dc=empresa,dc=lan
+objectClass: organizationalUnit
+ou: servicios
+
+dn: ou=politicas,dc=huesca,dc=empresa,dc=lan
+objectClass: organizationalUnit
+ou: politicas
+
+# --- 2. GRUPOS ---
+dn: cn=investigadores,ou=grupos,dc=huesca,dc=empresa,dc=lan
+objectClass: posixGroup
+cn: investigadores
+gidNumber: 10000
+
+dn: cn=visitas,ou=grupos,dc=huesca,dc=empresa,dc=lan
+objectClass: posixGroup
+cn: visitas
+gidNumber: 10001
+
+dn: cn=admins,ou=grupos,dc=huesca,dc=empresa,dc=lan
+objectClass: groupOfNames
+cn: admins
+member: cn=admin,dc=huesca,dc=empresa,dc=lan
+
+# --- 3. CUENTAS DE SERVICIO ---
+dn: cn=svc-lectura,ou=servicios,dc=huesca,dc=empresa,dc=lan
+objectClass: organizationalRole
+objectClass: simpleSecurityObject
+cn: svc-lectura
+userPassword: ${LDAP_ADMIN_PASSWORD}
+
+dn: cn=recepcion,ou=servicios,dc=huesca,dc=empresa,dc=lan
+objectClass: organizationalRole
+objectClass: simpleSecurityObject
+cn: recepcion
+userPassword: ${LDAP_ADMIN_PASSWORD}
+
+dn: cn=replica,ou=servicios,dc=huesca,dc=empresa,dc=lan
+objectClass: organizationalRole
+objectClass: simpleSecurityObject
+cn: replica
+userPassword: ${LDAP_ADMIN_PASSWORD}

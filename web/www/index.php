@@ -1,7 +1,12 @@
 <?php
-$host = "mi-postgres";
-$port = getenv('DB_PORT') ?: 5432;
-$conn = @pg_connect("host=$host port=$port dbname=" . getenv('DB_NAME') . " user=" . getenv('DB_USER') . " password=" . getenv('DB_PASSWORD'));
+function dsn() {   // cadena de conexión que admite contraseñas con espacios o comillas
+    $p = ['host' => getenv('DB_HOST') ?: 'db', 'port' => '5432', 'dbname' => getenv('DB_NAME'),
+          'user' => getenv('DB_USER'), 'password' => getenv('DB_PASSWORD')];
+    $s = '';
+    foreach ($p as $k => $v) $s .= "$k='" . addcslashes((string)$v, "'\\") . "' ";
+    return $s;
+}
+$conn = @pg_connect(dsn());
 if (!$conn) { http_response_code(500); die('Error de conexión a PostgreSQL'); }
 
 session_start();
@@ -16,8 +21,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && hash_equals($_SESSION['t'], $_POST[
         pg_query_params($conn, 'INSERT INTO inventario (nombre, descripcion) VALUES ($1, $2)', [$nombre, $desc]);
     elseif ($a === 'editar' && $nombre !== '' && $id > 0)
         pg_query_params($conn, 'UPDATE inventario SET nombre = $1, descripcion = $2 WHERE id = $3', [$nombre, $desc, $id]);
-    elseif ($a === 'borrar' && $id > 0)
-        pg_query_params($conn, 'DELETE FROM inventario WHERE id = $1', [$id]);
     header('Location: ./');
     exit;
 }
@@ -63,7 +66,7 @@ td input { padding: 7px 9px; font-size: .85rem; }
 <div class="wrap">
   <header>
     <h1>Gestión de Inventario - Sede Huesca</h1>
-    <p>Añade, edita, borra y consulta registros en PostgreSQL</p>
+    <p>Añade, edita y consulta registros en PostgreSQL (esta web no puede borrar: su usuario no tiene ese permiso)</p>
   </header>
 
   <div class="card">
@@ -93,7 +96,6 @@ td input { padding: 7px 9px; font-size: .85rem; }
           <td><input type="text" name="descripcion" value="<?= e($r['descripcion']) ?>"></td>
           <td class="acc">
             <button class="guardar" name="accion" value="editar">Guardar</button>
-            <button class="borrar" name="accion" value="borrar" formnovalidate onclick="return confirm('¿Borrar el registro #<?= (int)$r['id'] ?>?')">Borrar</button>
           </td>
         </form>
       </tr>

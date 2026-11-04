@@ -2,7 +2,7 @@ options {
     directory "/var/cache/bind";
     recursion no;                 // las vistas que lo necesitan lo activan
     allow-query { any; };
-    allow-transfer { none; };     // solo se permite, por zona, al secundario
+    allow-transfer { none; };     // solo se permite, por zona, a quien firme con la clave TSIG
     dnssec-validation auto;
     listen-on { any; };
 };
