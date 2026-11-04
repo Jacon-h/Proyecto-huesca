@@ -1,7 +1,7 @@
 # compose.yaml · Todos los contenedores de la sede, en un solo fichero.
 # Se lanza desde la raíz del repositorio. instalar.sh lo hace por fases.
 # Es el ÚNICO compose del proyecto: no debe haber otros en web/ ni dns/.
- 
+
 # Ajustes que comparten todos los servicios (se reutilizan con "<<: *comun")
 x-comun: &comun
   restart: unless-stopped
@@ -10,9 +10,9 @@ x-comun: &comun
     options:
       max-size: "10m"
       max-file: "3"
- 
+
 services:
- 
+
   # ============================================================ web · IAW
   web:
     <<: *comun
@@ -36,16 +36,20 @@ services:
         condition: service_healthy
       git:
         condition: service_started
- 
+
   # ============================================================ db · ASGBD
   db:
     <<: *comun
     image: postgres:16
     container_name: mi-postgres
     environment:
+      # Administrador de la base: dueño de las tablas, NO lo usa la web
       POSTGRES_DB: ${DB_NAME:?falta DB_NAME en .env}
-      POSTGRES_USER: ${DB_USER:?falta DB_USER en .env}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:?falta DB_PASSWORD en .env}
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?falta POSTGRES_PASSWORD en .env}
+      # Usuario de la web (lo crea db/03_usuario_web.sh: leer, insertar y editar, pero no borrar)
+      DB_USER: ${DB_USER:?falta DB_USER en .env}
+      DB_PASSWORD: ${DB_PASSWORD:?falta DB_PASSWORD en .env}
     volumes:
       - datos:/var/lib/postgresql/data
       - ./db:/docker-entrypoint-initdb.d:ro
@@ -55,7 +59,7 @@ services:
       interval: 5s
       retries: 10
       start_period: 10s
- 
+
   # ============================================================ git · Optativo
   git:
     <<: *comun
@@ -81,7 +85,7 @@ services:
       - ./forgejo-docker:/data
     # frontal es necesaria: en una red "internal" Docker NO publica los puertos
     networks: [frontal, trasera]
- 
+
   # ============================================================ dns · SRI
   dns:
     <<: *comun
@@ -91,7 +95,7 @@ services:
     volumes:
       - ./generado/dns:/etc/bind:ro   # lo genera instalar.sh dns a partir de dns/*.tpl y sede.env
     command: ["-g", "-c", "/etc/bind/named.conf", "-u", "bind"]
- 
+
   # ============================================================ ldap · SRI
   ldap:
     <<: *comun
@@ -119,7 +123,7 @@ services:
       interval: 5s
       retries: 12
       start_period: 30s
- 
+
   # ============================================================ lam · SRI
   lam:
     <<: *comun
@@ -139,12 +143,12 @@ services:
     depends_on:
       ldap:
         condition: service_healthy
- 
+
 volumes:
   datos:
   datos_ldap_db:
   datos_ldap_config:
- 
+
 networks:
   frontal:
   trasera:
