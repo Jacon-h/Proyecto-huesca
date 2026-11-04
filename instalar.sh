@@ -31,6 +31,8 @@ comprobar() {
     echo "== Comprobando que se puede instalar"
     if [ ! -f .env ]; then
         cp .env.example .env
+        chown "${SUDO_USER:-root}:$(id -gn "${SUDO_USER:-root}")" .env
+        chmod 600 .env
         echo "ERROR: no había .env; lo he creado desde .env.example. Rellénalo (nano .env) y vuelve a ejecutar."
         exit 1
     fi
