@@ -15,7 +15,7 @@ services:
     volumes:
       # El fichero lo genera instalar.sh a partir de .env (no va en Git)
       - ./secretos/intranet.htpasswd:/etc/apache2/.htpasswd:ro
-    environment:                    # nombres que lee el PHP con getenv()
+    environment:                   # nombres que lee el PHP con getenv()
       DB_HOST: db
       DB_NAME: ${DB_NAME}
       DB_USER: ${DB_USER}
@@ -75,55 +75,51 @@ services:
   dns:
     image: internetsystemsconsortium/bind9:9.18
     container_name: mi-bind9
-    network_mode: host                 # escucha en la IP del aula, puerto 53
+    network_mode: host              # escucha en la IP del aula, puerto 53
     volumes:
       - ./generado/dns:/etc/bind:ro   # lo genera instalar.sh dns a partir de dns/*.tpl y sede.env
     command: ["-g", "-c", "/etc/bind/named.conf", "-u", "bind"]
     restart: unless-stopped
 
-  # ============================================================ OpenLDAP · LAM
+  # ============================================================ ldap · SRI
   ldap:
     image: osixia/openldap:1.5.0
     container_name: ldap
-    hostname: ldap.huesca.empresa.lan
-    command: --copy-service
     environment:
-      LDAP_ORGANISATION: "Huesca"
+      LDAP_ORGANISATION: "Sede Huesca"
       LDAP_DOMAIN: "huesca.empresa.lan"
-      LDAP_ADMIN_PASSWORD: ${LDAP_ADMIN_PASSWORD}
-      LDAP_CONFIG_PASSWORD: ${LDAP_CONFIG_PASSWORD}
-      LDAP_TLS: "true"
-      LDAP_TLS_VERIFY_CLIENT: "never"
-    ports: ["389:389", "636:636"]
+      LDAP_ADMIN_PASSWORD: "${LDAP_ADMIN_PASSWORD}"
+      LDAP_CONFIG_PASSWORD: "${LDAP_CONFIG_PASSWORD}"
+    ports:
+      - "389:389"
+      - "636:636"
     volumes:
-      - ldap_data:/var/lib/ldap
-      - ldap_config:/etc/ldap/slapd.d
-      - ldap_certs:/container/service/slapd/assets/certs
       - ./ldif:/container/service/slapd/assets/config/bootstrap/ldif/custom:ro
-    networks: [frontal]
+      - datos_ldap_db:/var/lib/ldap
+      - datos_ldap_config:/etc/ldap/slapd.d
+    networks: [frontal, trasera]
     restart: unless-stopped
 
+  # ============================================================ lam · SRI
   lam:
-    image: ldapaccountmanager/lam:latest
+    image: ldapaccountmanager/lam:stable
     container_name: lam
+    ports:
+      - "8080:80"
     environment:
+      LAM_PASSWORD: "${LAM_PASSWORD}"
       LDAP_SERVER: "ldap://ldap:389"
       LDAP_DOMAIN: "huesca.empresa.lan"
       LDAP_BASE_DN: "dc=huesca,dc=empresa,dc=lan"
-      LDAP_USERS_DN: "ou=investigadores,dc=huesca,dc=empresa,dc=lan"
-      LDAP_GROUPS_DN: "ou=grupos,dc=huesca,dc=empresa,dc=lan"
-      LDAP_USER: "cn=admin,dc=huesca,dc=empresa,dc=lan"
-      LAM_PASSWORD: ${LAM_PASSWORD}
-    ports: ["8080:80"]
-    depends_on: [ldap]
-    networks: [frontal]      
+    networks: [frontal, trasera]
+    depends_on:
+      - ldap
     restart: unless-stopped
 
 volumes:
   datos:
-  ldap_data:
-  ldap_config:
-  ldap_certs:
+  datos_ldap_db:
+  datos_ldap_config:
 
 networks:
   frontal:
