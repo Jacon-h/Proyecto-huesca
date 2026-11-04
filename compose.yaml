@@ -1,11 +1,21 @@
 # compose.yaml · Todos los contenedores de la sede, en un solo fichero.
 # Se lanza desde la raíz del repositorio. instalar.sh lo hace por fases.
 # Es el ÚNICO compose del proyecto: no debe haber otros en web/ ni dns/.
-
+ 
+# Ajustes que comparten todos los servicios (se reutilizan con "<<: *comun")
+x-comun: &comun
+  restart: unless-stopped
+  logging:                          # sin esto los logs crecen sin límite y llenan el disco de la VM
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+ 
 services:
-
+ 
   # ============================================================ web · IAW
   web:
+    <<: *comun
     build: ./web
     container_name: mi-apache
     ports:
@@ -17,29 +27,25 @@ services:
       - ./secretos/intranet.htpasswd:/etc/apache2/.htpasswd:ro
     environment:                    # nombres que lee el PHP con getenv()
       DB_HOST: db
-      DB_NAME: ${DB_NAME}
-      DB_USER: ${DB_USER}
-      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME:?falta DB_NAME en .env}
+      DB_USER: ${DB_USER:?falta DB_USER en .env}
+      DB_PASSWORD: ${DB_PASSWORD:?falta DB_PASSWORD en .env}
     networks: [frontal, trasera]
     depends_on:
       db:
         condition: service_healthy
       git:
         condition: service_started
-    restart: unless-stopped
-
+ 
   # ============================================================ db · ASGBD
   db:
+    <<: *comun
     image: postgres:16
     container_name: mi-postgres
-    # Registra en `docker compose logs db` cada conexión (y cada intento fallido)
-    command: ["postgres", "-c", "log_connections=on", "-c", "log_disconnections=on"]
     environment:
-      POSTGRES_DB: ${DB_NAME}
-      POSTGRES_USER: postgres               # administrador: solo crea la tabla y los permisos
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      DB_USER: ${DB_USER}                   # usuario de la web: lo crea db/03_usuario_web.sh
-      DB_PASSWORD: ${DB_PASSWORD}           # y solo puede leer, insertar y editar (no borrar)
+      POSTGRES_DB: ${DB_NAME:?falta DB_NAME en .env}
+      POSTGRES_USER: ${DB_USER:?falta DB_USER en .env}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?falta DB_PASSWORD en .env}
     volumes:
       - datos:/var/lib/postgresql/data
       - ./db:/docker-entrypoint-initdb.d:ro
@@ -48,10 +54,11 @@ services:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
       retries: 10
-    restart: unless-stopped
-
+      start_period: 10s
+ 
   # ============================================================ git · Optativo
   git:
+    <<: *comun
     image: codeberg.org/forgejo/forgejo:1.21
     container_name: forgejo
     environment:
@@ -61,74 +68,83 @@ services:
       - GITEA__server__DOMAIN=git.${DOMINIO:-huesca.empresa.lan}
       - GITEA__server__SSH_DOMAIN=git.${DOMINIO:-huesca.empresa.lan}
       - GITEA__server__ROOT_URL=http://git.${DOMINIO:-huesca.empresa.lan}/
-      - GITEA__server__SSH_PORT=2222          # puerto que ven los clientes (el que sale en la URL de clonado)
+      - GITEA__server__SSH_PORT=2222          # puerto que ven los clientes (el de la URL de clonado)
       - GITEA__server__SSH_LISTEN_PORT=22     # puerto de sshd dentro del contenedor
-      - GITEA__security__INSTALL_LOCK=${FORGEJO_INSTALL_LOCK:-true}   # CORREGIDO: por defecto bloqueado
-      - FORGEJO__security__INSTALL_LOCK=${FORGEJO_INSTALL_LOCK:-true} # Compatibilidad nativa Forgejo
+      # Por defecto bloqueado; instalar.sh lo pone a false solo si aún no existe la base de datos
+      - GITEA__security__INSTALL_LOCK=${FORGEJO_INSTALL_LOCK:-true}
+      - FORGEJO__security__INSTALL_LOCK=${FORGEJO_INSTALL_LOCK:-true}
       - GITEA__service__DISABLE_REGISTRATION=true                     # nadie se crea cuenta solo (F2)
     ports:
-      - "3000:3000"
-      - "2222:22"
+      - "127.0.0.1:3000:3000"       # solo local: a la web se llega por Apache (git.<dominio>) y instalar.sh la comprueba en 127.0.0.1
+      - "2222:22"                   # SSH para clonar: este sí tiene que verse desde fuera
     volumes:
       - ./forgejo-docker:/data
     # frontal es necesaria: en una red "internal" Docker NO publica los puertos
     networks: [frontal, trasera]
-    restart: unless-stopped
-
+ 
   # ============================================================ dns · SRI
   dns:
+    <<: *comun
     image: internetsystemsconsortium/bind9:9.18
     container_name: mi-bind9
-    network_mode: host                 # escucha en la IP del aula, puerto 53
+    network_mode: host              # escucha en la IP del aula, puerto 53
     volumes:
       - ./generado/dns:/etc/bind:ro   # lo genera instalar.sh dns a partir de dns/*.tpl y sede.env
     command: ["-g", "-c", "/etc/bind/named.conf", "-u", "bind"]
-    restart: unless-stopped
-
-  # ============================================================ OpenLDAP · LAM
+ 
+  # ============================================================ ldap · SRI
   ldap:
+    <<: *comun
     image: osixia/openldap:1.5.0
     container_name: ldap
-    hostname: ldap.huesca.empresa.lan
+    # --copy-service: imprescindible porque ./ldif se monta en solo lectura (:ro).
+    # Sin esto la imagen intenta hacer chown sobre los .ldif, falla y reinicia en bucle.
     command: --copy-service
     environment:
-      LDAP_ORGANISATION: "Huesca"
+      LDAP_ORGANISATION: "Sede Huesca"
       LDAP_DOMAIN: "huesca.empresa.lan"
-      LDAP_ADMIN_PASSWORD: ${LDAP_ADMIN_PASSWORD}
-      LDAP_CONFIG_PASSWORD: ${LDAP_CONFIG_PASSWORD}
-      LDAP_TLS: "true"
-      LDAP_TLS_VERIFY_CLIENT: "never"
-    ports: ["389:389", "636:636"]
+      LDAP_ADMIN_PASSWORD: "${LDAP_ADMIN_PASSWORD:?falta LDAP_ADMIN_PASSWORD en .env}"
+      LDAP_CONFIG_PASSWORD: "${LDAP_CONFIG_PASSWORD:?falta LDAP_CONFIG_PASSWORD en .env}"
+    ports:
+      - "389:389"
+      - "636:636"
     volumes:
-      - ldap_data:/var/lib/ldap
-      - ldap_config:/etc/ldap/slapd.d
-      - ldap_certs:/container/service/slapd/assets/certs
+      # Los .ldif de esta carpeta se cargan solos SOLO la primera vez (con la base de datos vacía)
       - ./ldif:/container/service/slapd/assets/config/bootstrap/ldif/custom:ro
-    networks: [frontal]
-    restart: unless-stopped
-
+      - datos_ldap_db:/var/lib/ldap
+      - datos_ldap_config:/etc/ldap/slapd.d
+    networks: [frontal, trasera]
+    healthcheck:                    # así lam espera a que LDAP responda de verdad (y no solo a que el contenedor exista)
+      test: ["CMD-SHELL", "ldapwhoami -x -H ldap://localhost -D cn=admin,dc=huesca,dc=empresa,dc=lan -w \"$$LDAP_ADMIN_PASSWORD\" >/dev/null"]
+      interval: 5s
+      retries: 12
+      start_period: 30s
+ 
+  # ============================================================ lam · SRI
   lam:
-    image: ldapaccountmanager/lam:9.0
+    <<: *comun
+    image: ldapaccountmanager/lam:stable
     container_name: lam
+    ports:
+      - "8080:80"
     environment:
+      LAM_PASSWORD: "${LAM_PASSWORD:?falta LAM_PASSWORD en .env}"
       LDAP_SERVER: "ldap://ldap:389"
       LDAP_DOMAIN: "huesca.empresa.lan"
       LDAP_BASE_DN: "dc=huesca,dc=empresa,dc=lan"
+      LDAP_USER: "cn=admin,dc=huesca,dc=empresa,dc=lan"
       LDAP_USERS_DN: "ou=investigadores,dc=huesca,dc=empresa,dc=lan"
       LDAP_GROUPS_DN: "ou=grupos,dc=huesca,dc=empresa,dc=lan"
-      LDAP_USER: "cn=admin,dc=huesca,dc=empresa,dc=lan"
-      LAM_PASSWORD: ${LAM_PASSWORD}
-    ports: ["8080:80"]
-    depends_on: [ldap]
-    networks: [frontal]      
-    restart: unless-stopped
-
+    networks: [frontal, trasera]
+    depends_on:
+      ldap:
+        condition: service_healthy
+ 
 volumes:
   datos:
-  ldap_data:
-  ldap_config:
-  ldap_certs:
-
+  datos_ldap_db:
+  datos_ldap_config:
+ 
 networks:
   frontal:
   trasera:
