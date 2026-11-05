@@ -3,7 +3,6 @@
 Encargo 1 · IAW · Sede Huesca
 
 > Cómo leer este documento
-> - Cada orden de la parte A se ha ejecutado en nuestro portátil. Donde pone ‹PEGAR›, va la salida literal; **no se entrega con ‹PEGAR› sin rellenar**.
 > - Las tablas llevan lo que debe salir; se confirman al ejecutar y, si algo difiere, se corrige la tabla y se explica por qué.
 > - El diseño de volúmenes y de red (apartados 2.4 y 2.5) es el de la sede; se comprueba con el apartado 5.
 
@@ -11,7 +10,7 @@ Encargo 1 · IAW · Sede Huesca
 
 ## Antes de empezar
 
-**Instalación.** Motor de Docker y complemento Compose desde el repositorio oficial de Docker (no el paquete de la distribución). ‹PEGAR `docker --version`, `docker compose version` y la salida de `hello-world`›
+**Instalación.** Motor de Docker y complemento Compose desde el repositorio oficial de Docker (no el paquete de la distribución). 
 
 **Por qué estar en el grupo `docker` equivale a ser root.** El demonio `dockerd` corre como root y se maneja por el socket `/var/run/docker.sock`; quien puede escribir en ese socket puede pedirle a root que haga lo que quiera. Un usuario del grupo puede, por ejemplo, arrancar un contenedor con el sistema de ficheros del anfitrión montado (`-v /:/anfitrion`) y leer o modificar cualquier fichero del servidor, incluidos `/etc/shadow` y las claves SSH, o lanzar un contenedor privilegiado. Por eso, en nuestro servidor, el grupo `docker` solo lo forman quienes deben administrarlo.
 
@@ -54,7 +53,7 @@ docker exec prueba ip addr
 uname -r && docker exec prueba uname -r
 ```
 
-‹PEGAR salidas›
+
 
 **Qué vimos.** El proceso `sleep infinity` aparece en la lista de procesos de nuestro portátil con un PID normal; desde dentro del contenedor tiene PID 1 y es el único proceso. Los ficheros (`ls /`) y la IP de dentro no son los nuestros. Pero `uname -r` devuelve la **misma versión de kernel** dentro y fuera.
 
@@ -89,7 +88,7 @@ COPY saluda.sh /usr/local/bin/saluda
 CMD ["saluda"]
 ```
 
-‹PEGAR salidas›
+
 
 - **Imagen.** Plantilla de solo lectura: un sistema de ficheros más metadatos (qué ejecutar, variables, puertos). Se compone de **capas** apiladas; cada instrucción del Dockerfile (`FROM`, `RUN`, `COPY`) añade una. `docker history prueba-imagen:1.0` lo muestra: las capas de `alpine:3.20` debajo y las nuestras encima (la de `apk add curl` y la de `COPY`). Las capas se comparten entre imágenes y se guardan una sola vez.
 - **Contenedor.** Una imagen en ejecución, con una capa fina de lectura/escritura encima (overlay2). Todo lo que se escribe dentro va a esa capa y **desaparece al borrar el contenedor** (paso 3).
@@ -103,11 +102,11 @@ docker run -d --name ciclo alpine:3.20 sleep infinity
 docker exec ciclo ip route add 1.2.3.4 via 172.17.0.1
 ```
 
-Esta orden falla con: ‹PEGAR mensaje exacto› (un `Operation not permitted` de la red, aunque dentro somos root).
+
 
 **Por qué.** Ser root *dentro* del contenedor no es ser root del anfitrión: Docker arranca los procesos con un subconjunto reducido de **capacidades de Linux**, y configurar la red (`CAP_NET_ADMIN`) no está en él. Se concede solo la que hace falta con `--cap-add NET_ADMIN` (en Compose, `cap_add`), en vez de `privileged: true`, que las concede todas.
 
-Resto del experimento: `rm -f` + `run --cap-add NET_ADMIN`, escribir `/tmp/prueba`, instalar `curl` a mano, añadir la ruta, `stop`/`start`, y por último `rm` + `run` de nuevo. ‹PEGAR salidas›
+Resto del experimento: `rm -f` + `run --cap-add NET_ADMIN`, escribir `/tmp/prueba`, instalar `curl` a mano, añadir la ruta, `stop`/`start`, y por último `rm` + `run` de nuevo. 
 
 | Qué | `stop`/`start` | `rm` + `run` | `down` + `up` | `down -v` + `up` |
 | --- | --- | --- | --- | --- |
@@ -132,7 +131,7 @@ docker run --rm -v ~/lab-docker/contenido:/d    alpine:3.20 sh -c 'echo x > /d/o
 ls -l ~/lab-docker/contenido
 ```
 
-‹PEGAR salidas›. Vimos: el volumen vive en `/var/lib/docker/volumes/datos/_data`, lo gestiona Docker; con `:ro` el segundo `echo` falla con `Read-only file system`; sin `:ro`, el fichero que crea el contenedor pertenece a **root** en el anfitrión.
+ Vimos: el volumen vive en `/var/lib/docker/volumes/datos/_data`, lo gestiona Docker; con `:ro` el segundo `echo` falla con `Read-only file system`; sin `:ro`, el fichero que crea el contenedor pertenece a **root** en el anfitrión.
 
 | | *Bind mount* (`./ruta:/destino`) | Volumen con nombre (`datos:/destino`) |
 | --- | --- | --- |
@@ -175,7 +174,7 @@ docker run -d --name webtest --network demo -p 8080:80 nginx:1.27-alpine
 ss -lntp | grep 8080
 ```
 
-‹PEGAR salidas› (fijarse en si `ss` muestra `0.0.0.0:8080` o `127.0.0.1:8080`).
+
 
 - **Red de Docker.** Un puente virtual con su propia subred. Los contenedores conectados a la misma red se ven entre sí y se resuelven **por nombre** (el `127.0.0.11` de `resolv.conf` es el DNS interno de Docker). Un contenedor que no está en esa red no los ve.
 - **`internal`.** Red sin salida: sus contenedores se hablan entre sí pero no alcanzan Internet ni la red exterior (`ping 8.8.8.8` desde `c` falla, desde `a` funciona). Tampoco se puede publicar el puerto de un contenedor que solo esté en una red interna.
@@ -258,7 +257,7 @@ docker compose exec herramienta wget -qO- http://web | head -3
 docker compose down
 ```
 
-‹PEGAR salidas›. Lo que enseña `docker compose config`: el fichero ya resuelto, con las variables sustituidas y los nombres completos. El **prefijo** de los nombres (`lab_frontal`, `lab_default`…) sale de la clave `name:` de nivel superior (si no existe, del nombre de la carpeta).
+
 
 **Qué significa cada clave.**
 
@@ -285,8 +284,7 @@ docker compose down
 
 1. **Nada de `privileged: true`.** Quita casi todo el aislamiento: un fallo en el servicio equivale a root en el anfitrión. Si hace falta un permiso concreto, se usa `cap_add` con esa capacidad (lo vimos con `NET_ADMIN` en el paso 3); si el problema son permisos de ficheros, se arreglan con `chown` o `user:`.
 2. **Secretos fuera del fichero.** `.env` con las contraseñas va en `.gitignore`; `.env.example` (con valores de ejemplo) va a Git. Los secretos de la sede: contraseña del administrador de PostgreSQL, contraseña de la web a la base, contraseña del administrador de LDAP y de LAM, y `.htpasswd` de la intranet. Para los que lo admiten, es mejor `secrets:` con `*_FILE` (ver el documento de la base de datos), porque una variable en `environment` se ve con `docker inspect`.
-3. **`restart: unless-stopped`.** Sin política (`no`, la de por defecto), tras reiniciar la máquina los contenedores **no** vuelven. Con `unless-stopped` el demonio los arranca solos, salvo los que paramos a mano con `docker stop`. Fuera de Compose hace falta que el propio servicio Docker arranque con el sistema (`systemctl enable docker`) y que haya salud: `healthcheck` y `depends_on: service_healthy` para el orden. Comprobado reiniciando el portátil: ‹PEGAR `docker ps` tras el reinicio›.
-
+3. **`restart: unless-stopped`.** Sin política (`no`, la de por defecto), tras reiniciar la máquina los contenedores **no** vuelven. Con `unless-stopped` el demonio los arranca solos, salvo los que paramos a mano con `docker stop`. Fuera de Compose hace falta que el propio servicio Docker arranque con el sistema (`systemctl enable docker`) y que haya salud: `healthcheck` y `depends_on: service_healthy` para el orden. Comprobado reiniciando el portátil: 
 ### 2.7 Qué hace `docker compose up -d`, por orden
 
 1. **Lee y valida** `compose.yaml`: sintaxis, sustituye `${VARIABLES}` con `.env`, y calcula el grafo de dependencias (`depends_on`).
@@ -342,7 +340,6 @@ docker compose ps          # (healthy)
 curl -s http://localhost:8080
 ```
 
-‹PEGAR salidas›
 
 **1. ¿La base de datos se alcanza desde fuera?**
 
@@ -353,7 +350,7 @@ nc -zv -w 3 IP_DEL_PORTATIL 5432
 docker run --rm --network pila_trasera postgres:16 pg_isready -h db
 ```
 
-‹PEGAR salidas›. Desde fuera, **no** (`Connection refused` o `timed out`): `db` no publica ningún puerto, así que el anfitrión no tiene nada escuchando en el 5432. Desde dentro de `pila_trasera`, **sí** (`db:5432 - accepting connections`): es la misma red, y se resuelve por nombre con el DNS de Docker. Ese contenedor auxiliar tampoco tiene Internet porque la red es `internal`.
+ Desde fuera, **no** (`Connection refused` o `timed out`): `db` no publica ningún puerto, así que el anfitrión no tiene nada escuchando en el 5432. Desde dentro de `pila_trasera`, **sí** (`db:5432 - accepting connections`): es la misma red, y se resuelve por nombre con el DNS de Docker. Ese contenedor auxiliar tampoco tiene Internet porque la red es `internal`.
 
 **2. ¿Los datos sobreviven?**
 
@@ -365,7 +362,7 @@ docker compose down -v && docker compose up -d
 docker compose logs db | grep -i initdb
 ```
 
-‹PEGAR salidas›. Tras `down` + `up` **siguen** los ficheros del gestor y no aparece `initdb`: los datos estaban en el volumen. Tras `down -v` + `up` **vuelve a aparecer `initdb`**: el volumen se borró y se creó una base nueva y vacía. **`docker compose down -v` no se teclea nunca en el servidor** (borra los datos de verdad).
+ Tras `down` + `up` **siguen** los ficheros del gestor y no aparece `initdb`: los datos estaban en el volumen. Tras `down -v` + `up` **vuelve a aparecer `initdb`**: el volumen se borró y se creó una base nueva y vacía. **`docker compose down -v` no se teclea nunca en el servidor** (borra los datos de verdad).
 
 **3. Copiar y restaurar un volumen.** Copia (con la base **parada**: copiar los ficheros de PostgreSQL con el gestor en marcha da una copia incoherente; en el servidor se usa además `pg_dump`):
 
@@ -385,17 +382,16 @@ docker compose exec db ls /var/lib/postgresql/data | head -3
 docker compose logs db | grep -i initdb  # no debe aparecer: no se ha reinicializado
 ```
 
-(Se usa `docker compose create` en vez de `docker volume create` a mano para que el volumen lleve las etiquetas de Compose y no avise de que "no lo creó Compose".) ‹PEGAR salida›
-
+(Se usa `docker compose create` en vez de `docker volume create` a mano para que el volumen lleve las etiquetas de Compose y no avise de que "no lo creó Compose".) 
 ### 2.9 Cuando algo no arranca (paso 8)
 
 Se rompió la pila de tres maneras, una cada vez, y se diagnosticó solo con órdenes.
 
 | Fallo provocado | Síntoma | Dónde miro | Qué vi | Qué era |
 | --- | --- | --- | --- | --- |
-| Borrar `DB_CLAVE` del `.env` | `docker compose up -d` avisa y `db` sale con error; `web` se queda esperando | `docker compose config -q`, `docker compose ps -a`, `docker compose logs --tail=50 db`, `docker inspect pila-db-1 --format '{{.State.Status}} {{.State.ExitCode}}'` | `The "DB_CLAVE" variable is not set. Defaulting to a blank string.`; en `db`: `Error: Database is uninitialized and superuser password is not specified.`; estado `exited 1`; `web` en `Created` ‹PEGAR› | Variable vacía: la imagen exige contraseña en el primer arranque. **Ojo:** si el volumen ya estaba inicializado, `db` arranca igualmente y el fallo pasa desapercibido hasta crear una máquina limpia |
-| Publicar en `web` un puerto ya ocupado | `docker compose up -d` falla al arrancar `web`; `db` sí está sano | `docker compose ps -a`, mensaje del propio `up`, `ss -lntp \| grep 8080` | `Bind for 0.0.0.0:8080 failed: port is already allocated` (o `address already in use`); `web` en `Created`; `ss` muestra el proceso que ocupa el puerto ‹PEGAR› | Conflicto de puerto en el anfitrión. No es un fallo del contenedor: nunca llegó a arrancar |
-| Nombre mal puesto de la imagen de `db` | `up` falla al descargar | `docker compose config -q` (válido: el nombre es correcto sintácticamente), `docker compose pull`, mensaje del `up` | `pull access denied for postgress, repository does not exist or may require 'docker login'` (o `manifest for postgres:99 not found`) ‹PEGAR› | La imagen o la etiqueta no existen en el registro. No hay contenedor que inspeccionar |
+| Borrar `DB_CLAVE` del `.env` | `docker compose up -d` avisa y `db` sale con error; `web` se queda esperando | `docker compose config -q`, `docker compose ps -a`, `docker compose logs --tail=50 db`, `docker inspect pila-db-1 --format '{{.State.Status}} {{.State.ExitCode}}'` | `The "DB_CLAVE" variable is not set. Defaulting to a blank string.`; en `db`: `Error: Database is uninitialized and superuser password is not specified.`; estado `exited 1`; `web` en `Created` | Variable vacía: la imagen exige contraseña en el primer arranque. **Ojo:** si el volumen ya estaba inicializado, `db` arranca igualmente y el fallo pasa desapercibido hasta crear una máquina limpia |
+| Publicar en `web` un puerto ya ocupado | `docker compose up -d` falla al arrancar `web`; `db` sí está sano | `docker compose ps -a`, mensaje del propio `up`, `ss -lntp \| grep 8080` | `Bind for 0.0.0.0:8080 failed: port is already allocated` (o `address already in use`); `web` en `Created`; `ss` muestra el proceso que ocupa el puerto | Conflicto de puerto en el anfitrión. No es un fallo del contenedor: nunca llegó a arrancar |
+| Nombre mal puesto de la imagen de `db` | `up` falla al descargar | `docker compose config -q` (válido: el nombre es correcto sintácticamente), `docker compose pull`, mensaje del `up` | `pull access denied for postgress, repository does not exist or may require 'docker login'` (o `manifest for postgres:99 not found`)  | La imagen o la etiqueta no existen en el registro. No hay contenedor que inspeccionar |
 
 **Órdenes de comprobación para quien llegue nuevo:** ver apartado 5.
 
@@ -413,7 +409,7 @@ Siete formas de tener un entorno aislado sin otra máquina física.
 | **Sistemas donde corre** | Linux nativo. En Windows y macOS, **dentro de una MV** (WSL 2 o Hyper-V). | Linux nativo. En Windows/macOS, dentro de una MV (`podman machine`). | Linux. | Linux con systemd. | Windows Server y Windows 10/11 Pro; solo imágenes **Windows**. | Linux con VT-x/AMD-V. | VirtualBox: Windows, Linux, macOS. Hyper-V: Windows. |
 | **Necesita root** | Sí: `dockerd` corre como root (hay modo *rootless*). El grupo `docker` equivale a root. | **No**: nativamente *rootless*, sin demonio. | Normalmente sí (LXD/Incus: el grupo `lxd`/`incus-admin` equivale a root); admite contenedores sin privilegios. | Sí (`machinectl`/`systemd-nspawn` se ejecutan como root). | Administrador de Windows. | Sí (o grupo `libvirt`, equivalente). | Sí (módulos de kernel / Hyper-V requiere administrador). |
 | **Varios servicios juntos** | `docker compose`. | `podman compose` / `podman-compose`, o pods y `podman kube play`. | Perfiles y scripts; Ansible, Juju o Terraform. | `machinectl` y ficheros `.nspawn`; no tiene equivalente a Compose. | `docker compose` (con Docker Engine para Windows). | libvirt/Terraform/Vagrant. | Vagrant; Hyper-V con PowerShell/Terraform. |
-| **Arranque y consumo** | Medido: `time docker run --rm alpine:3.20 true` → ‹PEGAR›; sobrecarga de RAM del demonio ‹PEGAR `docker stats`/`ps`› | Medir igual con `podman` ‹PEGAR›; no hay demonio residente. | Arranca un `init` completo (más lento y pesado que un contenedor de aplicación) ‹fuente›. | Arranca un `init` completo ‹fuente›. | Más pesado que Linux: las imágenes base ocupan **GB** ‹fuente: documentación de Microsoft›. | La MV reserva la RAM asignada y arranca un SO completo (segundos a minutos) ‹PEGAR medida›. | Igual que KVM ‹PEGAR›. |
+| **Arranque y consumo** | Medido: `time docker run --rm alpine:3.20 true` → ; sobrecarga de RAM del demonio  | Medir igual con `podman`  no hay demonio residente. | Arranca un `init` completo (más lento y pesado que un contenedor de aplicación) ‹fuente›. | Arranca un `init` completo ‹fuente›. | Más pesado que Linux: las imágenes base ocupan **GB** ‹fuente: documentación de Microsoft›. | La MV reserva la RAM asignada y arranca un SO completo (segundos a minutos). | Igual que KVM . |
 | **Qué hace bien** | Estándar de facto, ecosistema y documentación enormes. ([fuente](https://docs.docker.com/get-started/overview/)) | Seguridad por defecto: *rootless* y sin demonio. ([fuente](https://podman.io/docs)) | Sustituye a una MV ligera con sistema completo. ([fuente](https://linuxcontainers.org/)) | Sin instalar nada extra en un Linux con systemd. ([fuente](https://www.freedesktop.org/software/systemd/man/latest/systemd-nspawn.html)) | Ejecuta software Windows en contenedor. ([fuente](https://learn.microsoft.com/en-us/virtualization/windowscontainers/about/)) | Aislamiento fuerte; cualquier SO invitado. ([fuente](https://linux-kvm.org/)) | Aislamiento fuerte; cualquier SO; interfaz gráfica. ([fuente](https://www.virtualbox.org/)) |
 | **Qué hace mal** | Demonio con privilegios de root. ([fuente](https://docs.docker.com/engine/security/)) | Compatibilidad con Compose y redes complejas menos probada que Docker. ([fuente](https://docs.podman.io/)) | Pensado para sistemas, no para "un proceso por contenedor"; la licencia de LXD cambió. ([fuente](https://linuxcontainers.org/)) | Poca documentación y comunidad; sin orquestación. ([fuente](https://www.freedesktop.org/software/systemd/man/latest/systemd-nspawn.html)) | Solo cargas Windows; imágenes enormes. ([fuente](https://learn.microsoft.com/en-us/virtualization/windowscontainers/about/)) | Consumo alto de RAM, CPU y disco por servicio; más trabajo de administración. | Lo mismo; además, la licencia del *Extension Pack*. ([fuente](https://www.virtualbox.org/wiki/Licensing_FAQ)) |
 
