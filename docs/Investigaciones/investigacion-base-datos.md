@@ -5,7 +5,6 @@ Gestor: **PostgreSQL 16.15** en Docker · Sede Huesca · ASGBD RA1
 > Convenciones de este documento
 > - Administrador del gestor (área de datos): `asir2`. Usuario de la web: `web_huesca`.
 > - Las órdenes se ejecutan en el servidor, dentro de la carpeta del proyecto (`/home/asir2/proyecto_huesca`).
-> - Donde pone ‹PEGAR›, va la salida literal de nuestro servidor.
 
 ---
 
@@ -177,7 +176,7 @@ docker compose logs db | grep -E "running /docker-entrypoint-initdb.d|ready to a
 docker exec mi-postgres psql -U asir2 -d mi_base_datos -tAc "SELECT count(*) FROM inventario;"
 ```
 
-Salida esperada: aparecen `running /docker-entrypoint-initdb.d/01-inventario.sql` y `02-roles.sh`, y el recuento da `20`. ‹PEGAR salida real›
+Salida esperada: aparecen `running /docker-entrypoint-initdb.d/01-inventario.sql` y `02-roles.sh`, y el recuento da `20`. 
 
 ---
 
@@ -315,7 +314,7 @@ LOG:  database system was shut down at 2026-09-30 ...
 LOG:  database system is ready to accept connections
 ```
 
-**`docker kill`.** Envía SIGKILL: el gestor muere sin cerrar sesiones ni vaciar buffers. En el arranque siguiente detecta que no se cerró bien y hace una **recuperación automática** repitiendo el WAL (`database system was interrupted` / `not properly shut down` / `automatic recovery in progress`). ‹PEGAR vuestras líneas reales›
+**`docker kill`.** Envía SIGKILL: el gestor muere sin cerrar sesiones ni vaciar buffers. En el arranque siguiente detecta que no se cerró bien y hace una **recuperación automática** repitiendo el WAL (`database system was interrupted` / `not properly shut down` / `automatic recovery in progress`). 
 
 **¿Se pierde algo confirmado tras un corte de luz?** No. Antes de confirmar un `COMMIT`, PostgreSQL fuerza la escritura del cambio en el WAL en disco. Al arrancar, repite el WAL desde el último checkpoint.
 
@@ -378,7 +377,7 @@ Notas:
 - No se usa `log_statement=all`: registraría las contraseñas en claro si alguien ejecuta `ALTER ROLE ... PASSWORD` (contradice D2).
 - No hace falta `version:` en Compose v2.
 
-Prueba de D5 (D8, punto 8): `docker kill mi-postgres`, esperar unos segundos y `docker compose ps` debe mostrar `healthy`. ‹PEGAR›
+Prueba de D5 (D8, punto 8): `docker kill mi-postgres`, esperar unos segundos y `docker compose ps` debe mostrar `healthy`. 
 
 ---
 
@@ -388,7 +387,7 @@ Prueba de D5 (D8, punto 8): `docker kill mi-postgres`, esperar unos segundos y `
 
 **Qué registra por defecto:** arranques y paradas, fallos de autenticación, errores de sintaxis, caídas graves. **Qué no:** las conexiones que funcionan ni las consultas correctas.
 
-**Cómo se cambia (D7):** parámetros al arrancar, en el compose: `command: ["postgres", "-c", "log_connections=on", "-c", "log_disconnections=on"]`. Después de aplicarlo, un acceso correcto deja `connection received` y `connection authorized`. ‹PEGAR›
+**Cómo se cambia (D7):** parámetros al arrancar, en el compose: `command: ["postgres", "-c", "log_connections=on", "-c", "log_disconnections=on"]`. Después de aplicarlo, un acceso correcto deja `connection received` y `connection authorized`. 
 
 **Una línea del registro, campo por campo:**
 
@@ -409,14 +408,14 @@ Prueba de D5 (D8, punto 8): `docker kill mi-postgres`, esperar unos segundos y `
 
 | # | Fallo y cómo se provoca | Qué vio el cliente | Qué dice el registro | Dónde se ve | Qué era |
 | --- | --- | --- | --- | --- | --- |
-| 1 | **Contraseña mal.** `docker exec -e PGPASSWORD=mala mi-postgres psql -h db -U web_huesca -d mi_base_datos -c "SELECT 1"` | `FATAL:  password authentication failed for user "web_huesca"` | `FATAL:  password authentication failed for user "web_huesca"` y `DETAIL:  Connection matched file "/var/lib/postgresql/data/pg_hba.conf" line 128: "host all all all scram-sha-256"` | Los dos | Autenticación fallida; el registro añade la línea de `pg_hba.conf` que se aplicó. ‹PEGAR› |
+| 1 | **Contraseña mal.** `docker exec -e PGPASSWORD=mala mi-postgres psql -h db -U web_huesca -d mi_base_datos -c "SELECT 1"` | `FATAL:  password authentication failed for user "web_huesca"` | `FATAL:  password authentication failed for user "web_huesca"` y `DETAIL:  Connection matched file "/var/lib/postgresql/data/pg_hba.conf" line 128: "host all all all scram-sha-256"` | Los dos | Autenticación fallida; el registro añade la línea de `pg_hba.conf` que se aplicó.  |
 | 2 | **Usuario que no existe.** Igual con `-U usuario_falso` (por red) | El **mismo** mensaje genérico: `password authentication failed for user "usuario_falso"` | `FATAL:  password authentication failed for user "usuario_falso"` y `DETAIL:  Role "usuario_falso" does not exist.` | Los dos, pero el registro dice más | Con `scram-sha-256` el cliente no sabe si el usuario existe (no se revela al atacante). Solo con `trust` (socket local o `127.0.0.1`) aparece `role "usuario_falso" does not exist` al cliente: `2026-10-06 10:30:06.118 UTC [851] FATAL:  role "usuario_falso" does not exist`. |
-| 3 | **Base que no existe.** Contraseña buena, `-d db_falsa` | `FATAL:  database "db_falsa" does not exist` | La misma línea | Los dos | La autenticación pasó y falló al elegir la base. Aquí sí lo dice al cliente. ‹PEGAR› |
+| 3 | **Base que no existe.** Contraseña buena, `-d db_falsa` | `FATAL:  database "db_falsa" does not exist` | La misma línea | Los dos | La autenticación pasó y falló al elegir la base. Aquí sí lo dice al cliente.  |
 | 4 | **La web intenta borrar.** Con `web_huesca`: `DELETE FROM inventario;` | `ERROR:  permission denied for table inventario` | `ERROR:  permission denied for table inventario` y `STATEMENT:  DELETE FROM inventario;` | Los dos | D3 funcionando: el usuario solo tiene `SELECT`. Es `ERROR`, no `FATAL`: la sesión sigue viva. |
-| 5 | **Tabla que no existe.** `SELECT * FROM tabla_falsa;` | `ERROR:  relation "tabla_falsa" does not exist` | `ERROR:  relation "tabla_falsa" does not exist` y `STATEMENT:  SELECT * FROM tabla_falsa;` | Los dos | Error de consulta, la sesión sigue. ‹PEGAR› |
+| 5 | **Tabla que no existe.** `SELECT * FROM tabla_falsa;` | `ERROR:  relation "tabla_falsa" does not exist` | `ERROR:  relation "tabla_falsa" does not exist` y `STATEMENT:  SELECT * FROM tabla_falsa;` | Los dos | Error de consulta, la sesión sigue.  |
 | 6 | **Cliente fuera de la red.** Desde otra máquina: `nc -zv -w 3 IP_SERVIDOR 5432` | `Connection refused` o `timed out` | **Nada** | Solo el cliente | El puerto no está publicado. La conexión no llega al proceso, y un proceso no registra lo que no ve. |
-| 7 | **Primer arranque sin contraseña.** `docker run --rm --name test-sin-pass postgres:16.15` | El contenedor sale con código 1 (no hay cliente) | La salida del contenedor: `Error: Database is uninitialized and superuser password is not specified.` | Solo el registro | La imagen exige `POSTGRES_PASSWORD` o `_FILE`. ‹PEGAR› |
-| 8 | **Error en el SQL de inicialización.** Volumen nuevo y un `.sql` con `SELEC 1;` | **No hay cliente**: el contenedor sale antes de abrir la red | `psql:/docker-entrypoint-initdb.d/xx.sql:1: ERROR:  syntax error at or near "SELEC"` y el contenedor sale con error | Solo el registro | `ON_ERROR_STOP=1`. Ver pregunta 2. ‹PEGAR› |
+| 7 | **Primer arranque sin contraseña.** `docker run --rm --name test-sin-pass postgres:16.15` | El contenedor sale con código 1 (no hay cliente) | La salida del contenedor: `Error: Database is uninitialized and superuser password is not specified.` | Solo el registro | La imagen exige `POSTGRES_PASSWORD` o `_FILE`.  |
+| 8 | **Error en el SQL de inicialización.** Volumen nuevo y un `.sql` con `SELEC 1;` | **No hay cliente**: el contenedor sale antes de abrir la red | `psql:/docker-entrypoint-initdb.d/xx.sql:1: ERROR:  syntax error at or near "SELEC"` y el contenedor sale con error | Solo el registro | `ON_ERROR_STOP=1`. Ver pregunta 2.  |
 | 9 | **Otra versión mayor con el mismo volumen.** Etiqueta `postgres:17` | El contenedor no arranca (`Restarting`) | `FATAL:  database files are incompatible with server` / `DETAIL:  The data directory was initialized by PostgreSQL version 16, which is not compatible with this version 17.11 ...` | Solo el registro | Hace falta migrar con dump o `pg_upgrade`. Real (pregunta 4). |
 
 **Fallos que nunca llegan al registro y por qué.** Cliente fuera de la red, DNS que no resuelve y reglas de cortafuegos o puertos no publicados: los paquetes no llegan al proceso del gestor, que no puede registrar un intento del que no se enteró.
@@ -434,7 +433,7 @@ Prueba de D5 (D8, punto 8): `docker kill mi-postgres`, esperar unos segundos y `
 **Procedimiento que usaremos en el servidor:**
 
 1. Copia: `docker exec mi-postgres pg_dump -U asir2 -d mi_base_datos --clean --if-exists --no-owner > backup_$(date +%F).sql`
-2. **Fuera del servidor** (D6): `scp backup_$(date +%F).sql ‹usuario@máquina-remota›:‹ruta›`. Si se muere el disco del servidor, la copia sigue en la otra máquina. ‹PEGAR destino y `ls -l` remoto›
+2. **Fuera del servidor** (D6): `scp backup_$(date +%F).sql ‹usuario@máquina-remota›:‹ruta›`. Si se muere el disco del servidor, la copia sigue en la otra máquina. 
 3. Restaurar en un gestor **vacío**:
 
 ```
@@ -445,9 +444,9 @@ docker exec pg-restore-test psql -U postgres -d mi_base_datos -tAc "SELECT count
 docker rm -f pg-restore-test
 ```
 
-Salida esperada del recuento: `20`. ‹PEGAR›
+Salida esperada del recuento: `20`. 
 
-4. **Restaurar sobre la base recién inicializada por D4** (que ya tiene la tabla y las 20 filas). Sin `--clean`, `psql` da `relation "inventario" already exists` y errores de clave duplicada en los datos, y la base queda como estaba. Por eso el dump lleva `--clean --if-exists`: borra y recrea, y el resultado vuelve a ser 20 filas. ‹PEGAR›
+4. **Restaurar sobre la base recién inicializada por D4** (que ya tiene la tabla y las 20 filas). Sin `--clean`, `psql` da `relation "inventario" already exists` y errores de clave duplicada en los datos, y la base queda como estaba. Por eso el dump lleva `--clean --if-exists`: borra y recrea, y el resultado vuelve a ser 20 filas.
 
 **Qué haremos en el servidor cuando toque de verdad:** parar la web (`docker compose stop web`), restaurar con el procedimiento 4, comprobar con D8 (puntos 3 y 4) y arrancar la web.
 
