@@ -1,6 +1,6 @@
 #!/bin/bash
 # Pruebas HTTP de la sede. Devuelve 0 si todo es correcto y 1 si algo falla.
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/.." || exit 1
 set -a; source .env; set +a
 
 FALLOS=0
@@ -24,5 +24,12 @@ probar "2. Intranet sin clave"   401 -H "$INTRA" http://localhost/
 probar "3. Intranet con clave"   200 -u "$INTRANET_USUARIO:$INTRANET_CLAVE" -H "$INTRA" http://localhost/
 probar "4. Recurso inexistente"  404 -H "$WWW"   http://localhost/noexiste
 probar "5. Git (proxy a Forgejo)" 200 -H "$GIT"   http://localhost/api/healthz
+
+probar "6. Página de estado"     200 -H "$WWW"   http://localhost/estado.php
+if curl -s -H "$WWW" http://localhost/estado.php | grep -Eq '^Filas en inventario: [0-9]+$'; then
+    echo "OK    7. estado.php muestra el número de filas"
+else
+    echo "FALLO 7. estado.php no muestra el número de filas"; FALLOS=1
+fi
 
 exit $FALLOS

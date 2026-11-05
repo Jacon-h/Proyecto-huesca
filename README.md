@@ -1,68 +1,171 @@
-# gns3/ · SRI
+# Sede Huesca · `huesca.empresa.lan`
 
-Proyecto de GNS3 de la red interna y la configuración de sus nodos.
+Servidor de la sede de Huesca: red, DNS (BIND9), web (Apache + PHP), base de datos (PostgreSQL),
+Git (Forgejo), directorio OpenLDAP (con su panel LAM) y la red interna simulada en GNS3. **Todo se despliega con tres órdenes** en una máquina
+limpia, sin tocar nada a mano.
 
-Plantilla: borrad esta línea y explicad cómo se abre el proyecto y qué hay que tener antes.
-# gns3/ · SRI
+## Qué necesitas antes
 
-Proyecto de GNS3 de la red interna de la sede Huesca (`red_huesca.gns3project`) y la configuración de sus nodos.
+Una máquina **Ubuntu Server recién instalada**, con `sudo` y conexión a Internet. Si no tiene `git`: `sudo apt install -y git`. Docker no hace falta instalarlo: `instalar.sh` lo hace.
 
-## Instalación automática
+## Despliegue: las tres órdenes
 
-No hay que hacer nada a mano: `sudo ./instalar.sh` ejecuta la fase `gns3` (después de `red` y `dns`, antes de `web`).
-También se puede lanzar sola con `sudo ./instalar.sh gns3`; se puede repetir sin romper nada. Qué hace:
-
-1. Crea el usuario de sistema `gns3` (grupos `docker`, `kvm` y `ubridge` si existen).
-2. Instala `gns3-server`, `ubridge`, `dynamips` y `vpcs` desde el PPA oficial (`ppa:gns3/ppa`).
-   Si el PPA no sirve para esta versión de Ubuntu, instala `gns3-server` 2.2.61 con `pip` y compila `ubridge` y `vpcs`
-   del código oficial. El detalle queda en `/var/log/instalar-gns3.log`.
-3. Da a `ubridge` las capacidades de red (`setcap cap_net_admin,cap_net_raw=ep`).
-4. Construye la imagen Docker `dns-secundario:1.0` (`gns3/dns-secundario/`) con las zonas `slave` que genera la fase `dns`.
-5. Crea y arranca la unidad `gns3server` (systemd): escucha en `0.0.0.0:3080`, arranca después de Docker y se activa en cada arranque.
-   Abre en UFW el puerto 3080 **solo** para las redes de Docker (Apache llega a GNS3 por ahí).
-6. Importa `red_huesca.gns3project` por la API, lo marca para abrirse y arrancar los nodos con el servidor
-   (`auto_open` y `auto_start`, así sobrevive a un reinicio), lo abre y arranca todos los nodos.
-
-Dónde se ve: `http://gns3.huesca.empresa.lan` (por Apache) o `http://IP_DEL_SERVIDOR:3080` (en el servidor).
-La fase `verificar` comprueba que el servidor responde, que Apache lo alcanza y que todos los nodos están arrancados.
-
-Requisitos que ya cubre `instalar.sh`: el puente `br-virtual` (fase `red`), que es al que se conecta Cloud1, y Docker.
-Sin `br-virtual` el servidor GNS3 se instala igual, pero Cloud1 no arranca: ejecuta `sudo ./instalar.sh red` y después `sudo ./instalar.sh gns3`.
-
-## Topología
-
-```
-Cloud1 (br-virtual) ── Switch1 ─┬─ PC1
-                                ├─ PC2
-                                └─ dns-secundario-1
+```bash
+git clone --branch despliegue <url> sede && cd sede   # 1. descarga el proyecto
+cp .env.example .env && nano .env                     # 2. escribe las contraseñas
+sudo ./instalar.sh                                    # 3. instala todo
+docker compose ps                                     # y comprueba que está en marcha
 ```
 
-| Nodo | Tipo | Dirección | Puerto de Switch1 |
-|---|---|---|---|
-| Cloud1 | Cloud → `br-virtual` | 10.2.0.1 (el servidor) | Ethernet0 |
-| PC2 | VPCS | 10.2.0.21/24, puerta 10.2.0.1, DNS 10.2.0.1 | Ethernet1 |
-| PC1 | VPCS | 10.2.0.20/24, puerta 10.2.0.1, DNS 10.2.0.1 | Ethernet2 |
-| dns-secundario-1 | Docker `dns-secundario:1.0` | 10.2.0.2/24, puerta 10.2.0.1, DNS 10.2.0.1 | Ethernet3 |
+| Orden | Qué hace |
+|---|---|
+| 1 · `git clone ...` | Descarga la rama `despliegue` en la carpeta `sede` y entra en ella. `<url>` es la del repositorio. |
+| 2 · `cp .env.example .env && nano .env` | Copia la plantilla de contraseñas y la abre para rellenarla (`.env` no va a Git). |
+| 3 · `sudo ./instalar.sh` | Instala y arranca todo, sin pedir nada. Es seguro repetirlo. |
+| `docker compose ps` | Muestra los seis servicios; deben estar en `running`. |
 
-Los datos de red coinciden con `sede.env` (`RED_INTERNA=10.2.0.0/24`, `IP_INTERNA=10.2.0.1/24`).
-La configuración de los PC está en `project-files/vpcs/*/startup.vpc` y la del secundario en
-`project-files/docker/<id>/etc/network/interfaces`, dentro del proyecto.
+### 1. Descargar el proyecto
 
-El BIND del secundario (zonas `slave`) se carga con el fichero que genera `sudo ./instalar.sh dns` en
-`generado/dns-secundario/named.conf.local`; ver `dns/README.md`.
-
-## Pruebas
-
-Desde la consola de PC1 o PC2:
-
-```
-ping 10.2.0.1        # llega al servidor
-ping 8.8.8.8         # sale por el NAT de la fase red
-ping google.com      # resuelve con el DNS
+```bash
+git clone --branch despliegue <url> sede && cd sede
 ```
 
-## Si no responde
+Descarga la rama `despliegue` (la que tiene todo listo para instalar). Sustituye `<url>` por la dirección del repositorio
+(en Forgejo, el botón **Clonar**: HTTP `http://git.huesca.empresa.lan/...` o SSH por el puerto 2222).
+Todas las órdenes siguientes se lanzan desde esta carpeta.
 
-- `ip -br addr show br-virtual` en el servidor: debe tener `10.2.0.1/24` y estar `UP`.
-- `sudo iptables -S DOCKER-USER`: deben estar las reglas de la fase `red`.
-- Comprobad que los nodos están arrancados y que el enlace Cloud1 → Switch1 es verde.
+### 2. Escribir las contraseñas
+
+```bash
+cp .env.example .env && nano .env
+```
+
+Copia la plantilla y ábrela para rellenarla. `.env` **no va a Git**: las claves solo existen en el servidor.
+**Son obligatorias las nueve variables**: si falta alguna, el instalador se detiene y dice cuál.
+Escribe cada valor justo después del `=`, sin espacios ni comentarios en la misma línea.
+
+| Variable | Para qué sirve |
+|---|---|
+| `DB_NAME` | Nombre de la base de datos de PostgreSQL. |
+| `DB_USER` | Usuario con el que entra la **web**: lee, inserta y edita, pero no puede borrar. No puede llamarse `postgres`. |
+| `DB_PASSWORD` | Contraseña de ese usuario. |
+| `POSTGRES_PASSWORD` | Contraseña del administrador `postgres` (es el dueño de la tabla; la web no lo usa). |
+| `INTRANET_USUARIO` / `INTRANET_CLAVE` | Usuario y contraseña de la intranet. |
+| `LDAP_ADMIN_PASSWORD` | Administrador del directorio OpenLDAP (`cn=admin,dc=huesca,dc=empresa,dc=lan`). |
+| `LDAP_CONFIG_PASSWORD` | Administrador de la configuración de OpenLDAP. |
+| `LAM_PASSWORD` | Contraseña del panel web LAM. |
+
+Guarda con `Ctrl+O`, `Enter` y sal con `Ctrl+X`.
+
+> **Las contraseñas de la base y de LDAP solo se aplican al crearlas.** Si cambias una en `.env` después de instalar,
+> los datos existentes siguen con la antigua. Para empezar de cero: `sudo ./instalar.sh reiniciar bd --si` o
+> `sudo ./instalar.sh reiniciar ldap --si` (**borran** esos datos).
+
+> **Si es otra sede:** revisa también `sede.env` (interfaz y IP del aula, puerta de enlace, resolutor, red interna, dominio).
+> Es el único sitio donde aparecen esos datos y **sí va a Git** (no tiene secretos); el resto de ficheros los toma de ahí.
+> `ip -br addr` te dice el nombre de tu interfaz (`INTERFAZ_AULA`) y su IP (`IP_AULA`).
+
+### 3. Instalar
+
+```bash
+sudo ./instalar.sh
+```
+
+Lanza todas las fases una detrás de otra. Tarda unos minutos y **no pide nada**.
+**Es seguro repetirlo**: cada fase mira primero qué está hecho, solo cambia lo que falta y nunca borra datos
+(base de datos, LDAP, Forgejo). Dos ejecuciones a la vez no se pisan: la segunda se niega a empezar.
+
+| Fase | Qué hace |
+|---|---|
+| `comprobar` | Verifica que `.env` existe y no tiene variables vacías, y que `docker compose` funciona. Si no hay `.env`, lo crea desde la plantilla y se detiene. |
+| `red` | IP fija en el aula, puente `br-virtual` de la red interna, reenvío de paquetes y NAT. Solo se aplica sola si la interfaz del aula ya tiene la IP de `sede.env` (así no te corta el acceso); si no, avisa y se lanza a mano con `sudo ./instalar.sh red`. |
+| `sistema` | Cortafuegos UFW (22, 53, 80, 2222, 3000), usuarios del equipo con sus claves SSH (`sistema/usuarios/*.pub`) y endurecimiento de `sshd`. |
+| `dns` | Genera las zonas desde `dns/*.tpl` y `sede.env`, crea la clave TSIG (una sola vez), valida todo y levanta `mi-bind9` con dos vistas (interna y aula). |
+| `gns3` | Instala el servidor GNS3, construye la imagen del DNS secundario (con la clave TSIG) e importa y arranca el proyecto de la red interna. |
+| `forgejo` | Prepara Forgejo y su SSH. Si existe `restauracion/forgejo-dump.zip`, restaura los datos de otro Forgejo. |
+| `web` | Genera `secretos/intranet.htpasswd` desde `.env` y levanta `mi-apache`, `mi-postgres`, `forgejo`, `ldap` y `lam`. |
+| `sssd` | Hace que este servidor autentique a los usuarios contra OpenLDAP. |
+| `verificar` | Prueba red, contenedores, permisos de la base, SSH de Forgejo, DNS (incluido TSIG y recursión del aula), GNS3 y las pruebas HTTP de `web/probar.sh`. |
+| `reiniciar ldap\|bd --si` | **Solo a mano.** Borra los datos de LDAP o de la base y los crea de nuevo. Sin `--si` no hace nada. |
+
+Una fase suelta se puede lanzar sola: `sudo ./instalar.sh <fase>` (por ejemplo `sudo ./instalar.sh dns`).
+El código de las fases largas está en `scripts/` (`gns3.sh`, `forgejo.sh`, `sssd.sh`).
+
+**Qué se debe ver al terminar:** líneas `OK ...` para cada comprobación y, al final, `=== TODO CORRECTO ===`.
+Si algo falla aparece `FALLO ...` con el motivo y el script termina con `=== HAY COMPROBACIONES FALLIDAS ===`.
+
+### 4. Comprobar que está en marcha
+
+```bash
+docker compose ps
+```
+
+Deben aparecer los seis servicios en estado `running` (`healthy` en la base de datos):
+
+| Servicio | Contenedor | Puerto |
+|---|---|---|
+| `web` | `mi-apache` | 80 |
+| `db` | `mi-postgres` | solo red interna de Docker |
+| `git` | `forgejo` | 3000 (web) y 2222 (SSH) |
+| `dns` | `mi-bind9` | 53 (red del servidor) |
+| `ldap` | `ldap` | 389 y 636 |
+| `lam` | `lam` | 8080 |
+
+Si alguno no está en `running`: `docker logs <contenedor>` muestra el motivo y `sudo ./instalar.sh verificar` repite las pruebas.
+La lista completa de pruebas, con la salida esperada y qué mirar si fallan, está en [`docs/comprobaciones.md`](docs/comprobaciones.md).
+
+## Qué se obtiene
+
+Los nombres los resuelve el DNS de la sede (apunta tu equipo a la IP del servidor como DNS):
+
+| Servicio | Dirección | Acceso |
+|---|---|---|
+| Web pública | `http://www.huesca.empresa.lan` | libre |
+| Intranet | `http://intranet.huesca.empresa.lan` | usuario y clave de `INTRANET_USUARIO` / `INTRANET_CLAVE` |
+| Git (Forgejo) | `http://git.huesca.empresa.lan` | registro cerrado; las cuentas las crea el administrador |
+| GNS3 | `http://gns3.huesca.empresa.lan` | libre dentro de la sede |
+| Estado de la web | `http://www.huesca.empresa.lan/estado.php` | libre; muestra si la base responde y cuántas filas tiene |
+| LAM (gestión de usuarios LDAP) | `http://<IP_AULA>:8080` | contraseña `LAM_PASSWORD` |
+
+Sin DNS configurado se puede probar con `curl -H "Host: www.huesca.empresa.lan" http://localhost/`.
+
+## Datos de la sede
+
+Se leen de `sede.env`. Valores actuales:
+
+| Dato | Valor |
+|---|---|
+| Sede / dominio | Huesca / `huesca.empresa.lan` |
+| Servidor en el aula | `enp5s0`, `192.168.6.105/24`, puerta `192.168.6.1` |
+| Red interna | `10.2.0.0/24` (puente `br-virtual`, servidor `10.2.0.1`, DNS secundario `10.2.0.2`) |
+| Equipo de administración | Alvaro, Jaime, Andreas y Diego (claves en `sistema/usuarios/`) |
+
+## Estructura del repositorio
+
+| Carpeta / fichero | Contenido |
+|---|---|
+| `instalar.sh` | Instalador por fases (lo único que se ejecuta). Las fases largas están en `scripts/`. |
+| `scripts/` | `gns3.sh`, `forgejo.sh` y `sssd.sh`: las fases que no caben en `instalar.sh`. |
+| `compose.yaml` | Todos los contenedores de la sede. Es el único compose. |
+| `.env.example` / `.env` | Plantilla de claves / claves reales (no van a Git). |
+| `sede.env` | Datos de la sede (sin secretos; va a Git). |
+| `red/`, `dns/`, `gns3/`, `sistema/`, `web/`, `db/`, `ldif/` | Configuración de cada área, con su propio `README.md` si lo tiene. |
+| `forgejo-docker/` | Datos y configuración del contenedor de Forgejo. |
+| `docs/` | Bitácora, investigaciones, documentación final y [`comprobaciones.md`](docs/comprobaciones.md). |
+
+## Si algo falla
+
+| Síntoma | Qué mirar |
+|---|---|
+| `ERROR: ejecútalo con sudo` | Lanza `sudo ./instalar.sh`, no `./instalar.sh`. |
+| `ERROR: no había .env` / `falta <VARIABLE> en .env` | Rellena `.env` (paso 2) y repite la orden. |
+| `AVISO: ... salto la fase red` | La interfaz de `sede.env` no existe o no tiene esa IP. Corrige `INTERFAZ_AULA` / `IP_AULA` y lanza `sudo ./instalar.sh red`. |
+| `ERROR: la configuración de BIND no es válida` | Se muestra el motivo justo encima; revisa `sede.env`. El DNS anterior no se toca. |
+| Puerto 53 ocupado | El instalador desactiva el *stub* de `systemd-resolved`; si persiste: `sudo ss -lntup \| grep :53`. |
+| Un contenedor no arranca | `docker logs mi-apache`, `docker logs mi-postgres`, `docker logs forgejo`, `docker logs mi-bind9`, `docker logs ldap` o `docker logs lam`. |
+| `FALLO usuario ... PUEDE borrar` | La base se creó antes de separar el usuario de la web. `sudo ./instalar.sh reiniciar bd --si` la crea de nuevo (borra los datos; vuelven las filas iniciales). |
+| `FALLO DNS: la transferencia con la clave TSIG falla` | Revisa `generado/tsig.conf` y `docker logs mi-bind9`. Si cambió la clave, `sudo ./instalar.sh gns3` reconstruye el secundario. |
+| GNS3 con nodos sin arrancar | `ip -br addr show br-virtual` (debe estar `UP`), `journalctl -u gns3server -n 30` y `/var/log/instalar-gns3.log`. Detalle en `gns3/README.md`. |
+| La intranet devuelve 401 | Es lo correcto sin credenciales; con `INTRANET_USUARIO` / `INTRANET_CLAVE` de `.env` debe dar 200. |
+
+Para cualquier duda de una fase concreta, mira el `README.md` de su carpeta.

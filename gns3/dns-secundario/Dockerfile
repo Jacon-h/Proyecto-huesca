@@ -8,7 +8,8 @@ RUN apt-get update && \
 
 COPY named.conf.options /etc/bind/named.conf.options
 COPY named.conf.local   /etc/bind/named.conf.local
+COPY tsig.conf          /etc/bind/tsig.conf
 COPY entrypoint.sh      /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+RUN chmod +x /entrypoint.sh && chown root:bind /etc/bind/tsig.conf && chmod 640 /etc/bind/tsig.conf
 
 ENTRYPOINT ["/entrypoint.sh"]

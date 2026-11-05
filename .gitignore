@@ -1,27 +1,13 @@
-# ============================================================
-# ENTORNOS Y SECRETOS (NUNCA SUBIR A GIT)
-# ============================================================
+# Claves de verdad: solo en el servidor
+# (sede.env NO se ignora: no tiene secretos y instalar.sh lo necesita al clonar)
 .env
-sede.env
-secretos/
 
-# ============================================================
-# ARCHIVOS GENERADOS DINÁMICAMENTE (instalar.sh / envsubst)
-# ============================================================
+# Lo que instalar.sh genera a partir de .env (htpasswd, cert, etc.)
+secretos/
 generado/
 restauracion/
 
-# Ficheros renderizados con credenciales inyectadas
-clientes/sssd.conf
-ldif/01_estructura.ldif
-
-# Asegurar que Git SÍ rastree las plantillas .tpl
-!clientes/*.tpl
-!ldif/*.tpl
-
-# ============================================================
-# DATOS PERSISTENTES Y VOLÚMENES LOCALES (FORGEJO)
-# ============================================================
+# Datos del contenedor de Forgejo (base de datos, claves SSH y repositorios)
 forgejo-docker/ssh/
 forgejo-docker/git/
 forgejo-docker/gitea/gitea.db
@@ -34,12 +20,6 @@ forgejo-docker/gitea/log/
 forgejo-docker/gitea/sessions/
 forgejo-docker/gitea/attachments/
 forgejo-docker/gitea/repo-avatars/
-forgejo-docker/gitea/conf/app.ini
 
-# ============================================================
-# REGISTROS Y FICHEROS TEMPORALES DEL SISTEMA
-# ============================================================
-*.log
-*.tmp
-.DS_Store
-Thumbs.db
+# Configuración sensible local de Forgejo (evita pisar tokens y SECRET_KEY en Git)
+forgejo-docker/gitea/conf/app.ini
