@@ -11,6 +11,15 @@
 set -eo pipefail
 cd "$(dirname "$0")"
 
+# ---------------------------------------------------------------- Correcciones previas de entorno
+# Auto-corregir formato de saltos de línea Windows (CRLF a LF) si se editó en Windows
+if command -v sed &>/dev/null; then
+    find . -maxdepth 3 -type f -name "*.sh" -exec sed -i 's/\r$//' {} + 2>/dev/null || true
+fi
+
+# Asignar permisos de ejecución a todos los scripts .sh del proyecto de forma automática
+find . -maxdepth 3 -type f -name "*.sh" -exec chmod +x {} + 2>/dev/null || true
+
 [ "$(id -u)" -eq 0 ] || { echo "ERROR: ejecútalo con sudo:  sudo ./instalar.sh"; exit 1; }
 
 # Solo un instalar.sh a la vez (dos a la vez se pisarían)
@@ -30,13 +39,25 @@ if ! command -v docker &>/dev/null; then
 fi
 command -v openssl &>/dev/null || apt-get install -y openssl
 
-source sede.env          # SEDE, DOMINIO, IP_AULA, BRIDGE_INTERNA…
+# Verificación y autocopia de sede.env para evitar fallos al realizar source
+if [ ! -f sede.env ]; then
+    if [ -f sede.env.example ]; then
+        echo "[+] Creando sede.env a partir de sede.env.example..."
+        cp sede.env.example sede.env
+    else
+        echo "AVISO: No se encontró sede.env ni sede.env.example."
+    fi
+fi
 
-# Valores derivados de sede.env, calculados una sola vez
+if [ -f sede.env ]; then
+    source sede.env          # SEDE, DOMINIO, IP_AULA, BRIDGE_INTERNA…
+fi
+
+# Valores derivados de sede.env, calculados una sola vez (con valores por defecto seguros)
 IP_AULA_SOLO="${IP_AULA%/*}"
 IP_INTERNA_SOLO="${IP_INTERNA%/*}"
 PREFIJO_INTERNA="${IP_INTERNA#*/}"
-IMAGEN_BIND=internetsystemsconsortium/bind9:9.18
+IMAGEN_BIND="${IMAGEN_BIND:-internetsystemsconsortium/bind9:9.18}"
 
 
 # ================================================================== FASES
@@ -68,19 +89,26 @@ comprobar() {
     titulo "Comprobando que se puede instalar"
     ajustar_reloj
     if [ ! -f .env ]; then
-        cp .env.example .env
-        chown "${SUDO_USER:-root}:$(id -gn "${SUDO_USER:-root}")" .env
-        chmod 600 .env
-        echo "ERROR: no había .env; lo he creado desde .env.example. Rellénalo (nano .env) y vuelve a ejecutar."
-        exit 1
+        if [ -f .env.example ]; then
+            cp .env.example .env
+            chown "${SUDO_USER:-root}:$(id -gn "${SUDO_USER:-root}")" .env 2>/dev/null || true
+            chmod 600 .env
+            echo "ERROR: no había .env; lo he creado desde .env.example. Rellénalo (nano .env) y vuelve a ejecutar."
+            exit 1
+        else
+            echo "ERROR: no existe .env ni .env.example."
+            exit 1
+        fi
     fi
     set -a; source .env; set +a
     for v in DB_NAME DB_USER DB_PASSWORD POSTGRES_PASSWORD INTRANET_USUARIO INTRANET_CLAVE LDAP_ADMIN_PASSWORD LDAP_CONFIG_PASSWORD LAM_PASSWORD; do
         [ -n "${!v:-}" ] || { echo "ERROR: falta $v en .env"; exit 1; }
     done
     [ "$DB_USER" != postgres ] || { echo "ERROR: DB_USER no puede ser 'postgres' (es el administrador)"; exit 1; }
-    docker compose version >/dev/null || { echo "ERROR: falta el plugin docker compose"; exit 1; }
-    echo "    Todo listo para instalar la sede $SEDE"
+    if ! docker compose version >/dev/null 2>&1 && ! docker-compose version >/dev/null 2>&1; then
+        echo "ERROR: falta el plugin docker compose"; exit 1;
+    fi
+    echo "    Todo listo para instalar la sede ${SEDE:-Huesca}"
 }
 
 
@@ -89,7 +117,7 @@ comprobar() {
 # y mostrará el error de verdad.
 PULL_PID=""
 precargar_imagenes() {
-    ( docker compose pull -q --ignore-buildable >/var/log/instalar-pull.log 2>&1 ) &
+    ( docker compose pull -q --ignore-buildable >/var/log/instalar-pull.log 2>&1 || docker-compose pull -q --ignore-buildable >/var/log/instalar-pull.log 2>&1 ) &
     PULL_PID=$!
 }
 esperar_imagenes() {
@@ -129,10 +157,10 @@ red() {
 # La fase red cambia la IP del servidor: solo se aplica sola si NO puede cortarte el acceso,
 # es decir, si la interfaz del aula existe y ya tiene la IP que dice sede.env.
 red_automatica() {
-    if ip -4 -br addr show "$INTERFAZ_AULA" 2>/dev/null | grep -q "$IP_AULA_SOLO"; then
+    if ip -4 -br addr show "${INTERFAZ_AULA:-eth0}" 2>/dev/null | grep -q "$IP_AULA_SOLO"; then
         red
     else
-        echo "AVISO: $INTERFAZ_AULA no existe o no tiene $IP_AULA_SOLO: salto la fase red."
+        echo "AVISO: ${INTERFAZ_AULA:-interfaz} no existe o no tiene $IP_AULA_SOLO: salto la fase red."
         echo "       Si es el servidor real, ejecuta:  sudo ./instalar.sh red"
     fi
 }
@@ -188,10 +216,10 @@ dns() {
     liberar_puerto_53
 
     # --- Valores derivados de sede.env
-    IFS=. read -r o1 o2 o3 _ <<< "${RED_INTERNA%/*}"
+    IFS=. read -r o1 o2 o3 _ <<< "${RED_INTERNA:-10.2.0.0/16}"
     ZONA_INVERSA="${o2}.${o1}.in-addr.arpa"                  # 2.10.in-addr.arpa
     PTR_SERVIDOR="${IP_INTERNA_SOLO##*.}.${o3}"              # 1.0 (dentro de la zona anterior)
-    ACL_AULA=""; for r in $REDES_AULA; do ACL_AULA+="$r; "; done
+    ACL_AULA=""; for r in ${REDES_AULA:-}; do ACL_AULA+="$r; "; done
 
     # Serial siempre creciente (YYYYMMDDHH, o el anterior +1): así el secundario se entera de cada cambio
     mkdir -p generado/dns/interna generado/dns/aula generado/dns-secundario
@@ -229,7 +257,11 @@ dns() {
     fi
 
     docker rm -f mi-bind9 2>/dev/null || true          # restos de intentos anteriores
-    docker compose up -d --force-recreate dns
+    if command -v docker compose &>/dev/null && docker compose version &>/dev/null; then
+        docker compose up -d --force-recreate dns
+    else
+        docker-compose up -d --force-recreate dns
+    fi
 }
 
 
@@ -348,12 +380,12 @@ for _ in $(seq 1 30); do ip link show "$1" >/dev/null 2>&1 && exit 0; sleep 1; d
 exit 0
 ESPERA
         chmod 755 /usr/local/sbin/gns3-espera-puente.sh
-        espera="ExecStartPre=-/usr/local/sbin/gns3-espera-puente.sh $BRIDGE_INTERNA"
+        espera="ExecStartPre=-/usr/local/sbin/gns3-espera-puente.sh ${BRIDGE_INTERNA:-br-virtual}"
     fi
 
     local unidad; unidad=$(cat <<UNIT
 [Unit]
-Description=GNS3 server (sede $SEDE)
+Description=GNS3 server (sede ${SEDE:-Huesca})
 After=network-online.target docker.service
 Wants=network-online.target docker.service
 
@@ -439,7 +471,7 @@ gns3_proyecto() {
 
     if [ "$parados" = 0 ]; then echo "    Proyecto 'red huesca' abierto y con todos los nodos arrancados"
     else
-        echo "AVISO: $parados nodo(s) de GNS3 sin arrancar (¿existe $BRIDGE_INTERNA? ¿está la imagen dns-secundario:1.0?)"
+        echo "AVISO: $parados nodo(s) de GNS3 sin arrancar (¿existe ${BRIDGE_INTERNA:-br-virtual}? ¿está la imagen dns-secundario:1.0?)"
         echo "    ubridge: $(ls -l "$(command -v ubridge)" 2>/dev/null | awk '{print $1, $3, $4}')  caps: $(getcap "$(command -v ubridge)" 2>/dev/null)"
         echo "    usuario gns3: $(id gns3 2>/dev/null)"
         journalctl -u gns3server -n 15 --no-pager 2>/dev/null || true
@@ -537,7 +569,11 @@ forgejo_ssh_preparar() {         # claves del servidor y permisos que exige sshd
 }
 
 forgejo_ssh_activar() {          # con el contenedor en marcha: authorized_keys y hooks salen de la base de datos
-    docker compose up -d git
+    if command -v docker compose &>/dev/null && docker compose version &>/dev/null; then
+        docker compose up -d git
+    else
+        docker-compose up -d git
+    fi
     for _ in $(seq 1 60); do
         curl -fs http://127.0.0.1:3000/api/healthz >/dev/null 2>&1 && break
         sleep 1
@@ -564,7 +600,7 @@ web() {
 
     mkdir -p secretos
     [ -d secretos/intranet.htpasswd ] && rm -rf secretos/intranet.htpasswd   # Docker lo crea como carpeta si no existe
-    printf '%s:%s\n' "$INTRANET_USUARIO" "$(openssl passwd -apr1 "$INTRANET_CLAVE")" > secretos/intranet.htpasswd
+    printf '%s:%s\n' "${INTRANET_USUARIO:-admin}" "$(openssl passwd -apr1 "${INTRANET_CLAVE:-secret}")" > secretos/intranet.htpasswd
     chmod 755 secretos
     chmod 644 secretos/intranet.htpasswd
 
@@ -577,10 +613,18 @@ web() {
     forgejo_entorno
     esperar_imagenes                                  # las descargas en segundo plano ya deberían haber acabado
 
-    docker compose down ldap lam -v 2>/dev/null || true
+    if command -v docker compose &>/dev/null && docker compose version &>/dev/null; then
+        docker compose down ldap lam -v 2>/dev/null || true
+    else
+        docker-compose down ldap lam -v 2>/dev/null || true
+    fi
     docker rm -f mi-apache mi-postgres forgejo 2>/dev/null || true
 
-    docker compose up -d --build --force-recreate web ldap lam
+    if command -v docker compose &>/dev/null && docker compose version &>/dev/null; then
+        docker compose up -d --build --force-recreate web ldap lam
+    else
+        docker-compose up -d --build --force-recreate web ldap lam
+    fi
 }
 
 
@@ -604,13 +648,13 @@ verificar() {
     local r c estado huella pid
 
     # Red
-    if ip link show "$BRIDGE_INTERNA" &>/dev/null; then
+    if [ -n "${BRIDGE_INTERNA:-}" ] && ip link show "$BRIDGE_INTERNA" &>/dev/null; then
         ip -br addr show "$BRIDGE_INTERNA" | grep -q "$IP_INTERNA_SOLO" && bien "puente" || mal "puente"
         [ "$(sysctl -n net.ipv4.ip_forward)" = 1 ] && bien "forwarding" || mal "forwarding"
         iptables -t nat -C POSTROUTING -s "$RED_INTERNA" -o "$INTERFAZ_AULA" -j MASQUERADE 2>/dev/null \
             && bien "NAT" || mal "NAT"
     else
-        echo "AVISO: no existe $BRIDGE_INTERNA (fase red no aplicada): salto las pruebas de red."
+        echo "AVISO: no existe ${BRIDGE_INTERNA:-bridge} (fase red no aplicada): salto las pruebas de red."
     fi
 
     # Contenedores
@@ -623,9 +667,9 @@ verificar() {
     done
 
     # Base de datos: el usuario de la web puede leer pero NO borrar
-    r=$(docker exec mi-postgres psql -U "$DB_USER" -d "$DB_NAME" -c "DELETE FROM inventario WHERE false" 2>&1 || true)
-    if echo "$r" | grep -q "permission denied"; then bien "usuario $DB_USER sin permiso de borrado"
-    else mal "usuario $DB_USER: no tiene el permiso esperado (¿existe el rol? $r)"; fi
+    r=$(docker exec mi-postgres psql -U "${DB_USER:-web}" -d "${DB_NAME:-huesca}" -c "DELETE FROM inventario WHERE false" 2>&1 || true)
+    if echo "$r" | grep -q "permission denied"; then bien "usuario ${DB_USER:-web} sin permiso de borrado"
+    else mal "usuario ${DB_USER:-web}: no tiene el permiso esperado (¿existe el rol? $r)"; fi
 
     # SSH de Forgejo (2222): debe enseñar su clave y, si hay claves de origen, ser la misma
     if command -v ssh-keyscan &>/dev/null; then
@@ -639,12 +683,12 @@ verificar() {
 
     # DNS
     if command -v dig &>/dev/null; then
-        r=$(dig +short +time=2 +tries=1 @127.0.0.1 "www.$DOMINIO" || true)
-        [ -n "$r" ] && bien "DNS www -> $r" || mal "DNS: www.$DOMINIO no resuelve"
+        r=$(dig +short +time=2 +tries=1 @127.0.0.1 "www.${DOMINIO:-huesca.local}" || true)
+        [ -n "$r" ] && bien "DNS www -> $r" || mal "DNS: www.${DOMINIO:-huesca.local} no resuelve"
 
         # Vista del aula: preguntamos desde la IP del aula del propio servidor (BIND nos ve como "aula")
-        if ip -4 -br addr show "$INTERFAZ_AULA" 2>/dev/null | grep -q "$IP_AULA_SOLO"; then
-            r=$(dig +short +time=2 +tries=1 -b "$IP_AULA_SOLO" "@$IP_AULA_SOLO" "www.$DOMINIO" A | tail -1 || true)
+        if [ -n "${INTERFAZ_AULA:-}" ] && ip -4 -br addr show "$INTERFAZ_AULA" 2>/dev/null | grep -q "$IP_AULA_SOLO"; then
+            r=$(dig +short +time=2 +tries=1 -b "$IP_AULA_SOLO" "@$IP_AULA_SOLO" "www.${DOMINIO:-huesca.local}" A | tail -1 || true)
             [ "$r" = "$IP_AULA_SOLO" ] && bien "DNS vista aula www -> $r" \
                 || mal "DNS vista aula: esperaba $IP_AULA_SOLO y salió '$r'"
         fi
@@ -654,9 +698,9 @@ verificar() {
     if command -v gns3server &>/dev/null; then
         r=$(curl -fs "$GNS3_API/version" 2>/dev/null | python3 -c 'import sys,json; print(json.load(sys.stdin)["version"])' 2>/dev/null || true)
         [ -n "$r" ] && bien "servidor GNS3 $r (puerto $GNS3_PUERTO)" || mal "servidor GNS3: no responde en el puerto $GNS3_PUERTO"
-        r=$(curl -s -o /dev/null -w '%{http_code}' -H "Host: gns3.$DOMINIO" http://localhost/v2/version || true)
-        [ "$r" = 200 ] && bien "gns3.$DOMINIO (Apache -> GNS3)" || mal "gns3.$DOMINIO: recibido $r"
-        if ip link show "$BRIDGE_INTERNA" &>/dev/null; then
+        r=$(curl -s -o /dev/null -w '%{http_code}' -H "Host: gns3.${DOMINIO:-huesca.local}" http://localhost/v2/version || true)
+        [ "$r" = 200 ] && bien "gns3.${DOMINIO:-huesca.local} (Apache -> GNS3)" || mal "gns3.${DOMINIO:-huesca.local}: recibido $r"
+        if [ -n "${BRIDGE_INTERNA:-}" ] && ip link show "$BRIDGE_INTERNA" &>/dev/null; then
             pid=$(gns3_id_proyecto)
             r=$(gns3_nodos_parados "$pid")
             [ "$r" = 0 ] && bien "proyecto GNS3: todos los nodos arrancados" || mal "proyecto GNS3: $r nodo(s) sin arrancar"
@@ -665,7 +709,9 @@ verificar() {
         echo "AVISO: GNS3 no está instalado (ejecuta: sudo ./instalar.sh gns3)"
     fi
 
-    bash web/probar.sh || FALLOS=1
+    if [ -f web/probar.sh ]; then
+        bash web/probar.sh || FALLOS=1
+    fi
 
     titulo "Estado de los contenedores:"
     docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
