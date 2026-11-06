@@ -31,9 +31,25 @@ titulo() { echo "== $*"; }
 bien()   { echo "OK    $*"; }
 mal()    { echo "FALLO $*"; FALLOS=1; }
 
+# ---------------------------------------------------------------- Garantía de Conectividad DNS
+# Garantiza que el sistema conserve resolución de nombres hacia Internet incluso si systemd-resolved o BIND cambian
+asegurar_dns() {
+    if ! ping -c 1 -W 2 8.8.8.8 &>/dev/null; then
+        return 0 # Si no hay ni enlace IP a Internet, no forzamos cambio de resolv.conf
+    fi
+    if ! host ppa.launchpadcontent.net &>/dev/null && ! host github.com &>/dev/null; then
+        echo "    [+] Restaurando resolución DNS hacia Internet (8.8.8.8)..."
+        if [ -L /etc/resolv.conf ]; then
+            rm -f /etc/resolv.conf
+        fi
+        printf "nameserver 8.8.8.8\nnameserver 1.1.1.1\n" > /etc/resolv.conf
+    fi
+}
+
 # ---------------------------------------------------------------- Requisitos
 if ! command -v docker &>/dev/null; then
     titulo "Docker no está instalado. Instalándolo..."
+    asegurar_dns
     apt-get update && apt-get install -y docker.io docker-compose-v2
     usermod -aG docker "${SUDO_USER:-root}" || true
 fi
@@ -66,6 +82,7 @@ IMAGEN_BIND="${IMAGEN_BIND:-internetsystemsconsortium/bind9:9.18}"
 # ("Not live until ...") y los docker build fallan. Se compara con la hora HTTP de un servidor
 # fiable y, si hay más de 60 s de diferencia, se corrige (también en el reloj hardware).
 ajustar_reloj() {
+    asegurar_dns
     command -v curl &>/dev/null || { echo "    AVISO: no hay curl, no compruebo el reloj"; return 0; }
     local fecha="" url ref ahora dif
     for url in https://deb.debian.org https://www.google.com; do
@@ -87,6 +104,7 @@ ajustar_reloj() {
 
 comprobar() {
     titulo "Comprobando que se puede instalar"
+    asegurar_dns
     ajustar_reloj
     if [ ! -f .env ]; then
         if [ -f .env.example ]; then
@@ -128,6 +146,7 @@ esperar_imagenes() {
 
 red() {
     titulo "Red"
+    asegurar_dns
     apt-get install -y iptables gettext-base >/dev/null
 
     export INTERFAZ_AULA IP_AULA PUERTA_AULA RESOLUTOR_CENTRO IP_INTERNA BRIDGE_INTERNA
@@ -168,6 +187,7 @@ red_automatica() {
 
 sistema() {
     titulo "Sistema, usuarios y cortafuegos"
+    asegurar_dns
     apt-get install -y openssh-server >/dev/null
     mkdir -p /etc/ssh/sshd_config.d
     bash sistema/config_red_ufw.sh
@@ -191,10 +211,10 @@ liberar_puerto_53() {
     if ss -lntup 2>/dev/null | grep -qE '127\.0\.0\.53(%lo)?:53 '; then
         echo "    Liberando el puerto 53 (systemd-resolved)"
         mkdir -p /etc/systemd/resolved.conf.d
-        printf '[Resolve]\nDNSStubListener=no\n' > /etc/systemd/resolved.conf.d/sede-nostub.conf
-        ln -sf /run/systemd/resolve/resolv.conf /etc/resolv.conf   # si no, el servidor se queda sin resolver
-        systemctl restart systemd-resolved
+        printf '[Resolve]\nDNSStubListener=no\nDNS=8.8.8.8 1.1.1.1\nFallbackDNS=8.8.4.4\n' > /etc/systemd/resolved.conf.d/sede-nostub.conf
+        systemctl restart systemd-resolved 2>/dev/null || true
     fi
+    asegurar_dns
 }
 
 # Clave TSIG: firma las transferencias de zona entre el DNS principal y el secundario de GNS3.
@@ -284,6 +304,7 @@ gns3_usuario() {
 }
 
 gns3_paquetes_ppa() {
+    asegurar_dns
     apt-get install -y software-properties-common
     add-apt-repository -y ppa:gns3/ppa
     apt-get update
@@ -291,6 +312,7 @@ gns3_paquetes_ppa() {
 }
 
 gns3_paquetes_pip() {
+    asegurar_dns
     # gns3-server por pip; ubridge y vpcs desde el código oficial (el vpcs de Ubuntu es demasiado viejo)
     apt-get install -y python3-venv python3-pip build-essential libpcap-dev git dynamips
     python3 -m venv /opt/gns3/venv
@@ -299,10 +321,10 @@ gns3_paquetes_pip() {
     ln -sf /opt/gns3/venv/bin/gns3server /usr/local/bin/gns3server
 
     local tmp; tmp=$(mktemp -d)
-    git clone --depth 1 --branch v0.9.19 https://github.com/GNS3/ubridge.git "$tmp/ubridge"
+    git clone --connect-timeout 10 --depth 1 --branch v0.9.19 https://github.com/GNS3/ubridge.git "$tmp/ubridge"
     make -C "$tmp/ubridge"
     install -m 755 "$tmp/ubridge/ubridge" /usr/local/bin/ubridge
-    git clone --depth 1 --branch v0.8.5 https://github.com/GNS3/vpcs.git "$tmp/vpcs"
+    git clone --connect-timeout 10 --depth 1 --branch v0.8.5 https://github.com/GNS3/vpcs.git "$tmp/vpcs"
     (cd "$tmp/vpcs/src" && ./mk.sh)
     install -m 755 "$tmp/vpcs/src/vpcs" /usr/local/bin/vpcs
     rm -rf "$tmp"
@@ -310,6 +332,7 @@ gns3_paquetes_pip() {
 
 gns3_instalar_servidor() {
     export DEBIAN_FRONTEND=noninteractive
+    asegurar_dns
     apt-get install -y curl ca-certificates libcap2-bin gettext-base >/dev/null
     gns3_usuario
 
@@ -480,6 +503,7 @@ gns3_proyecto() {
 
 gns3() {
     titulo "GNS3 (servidor y proyecto de la red interna)"
+    asegurar_dns
     gns3_instalar_servidor
     gns3_imagen_dns_secundario
     gns3_servicio
@@ -513,7 +537,7 @@ forgejo_restaurar() {
     # sqlite3 y unzip ANTES de contar usuarios. Antes se instalaban después: sin sqlite3 el recuento
     # daba 0 y se restauraba encima de un Forgejo que ya tenía datos.
     command -v sqlite3 &>/dev/null && command -v unzip &>/dev/null \
-        || apt-get install -y unzip sqlite3 >/dev/null
+        || { asegurar_dns; apt-get install -y unzip sqlite3 >/dev/null; }
 
     local num_usuarios=0
     if [ -f "$FORGEJO_DATOS/gitea/gitea.db" ]; then
