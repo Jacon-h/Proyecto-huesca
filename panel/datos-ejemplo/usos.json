@@ -1,0 +1,34 @@
+[
+  {
+    "proyecto": "BIO-0001",
+    "usuario": "ana",
+    "maquina": "cierzo",
+    "nucleos": 128,
+    "horas": 6.5,
+    "fecha": "2026-11-02"
+  },
+  {
+    "proyecto": "BIO-0001",
+    "usuario": "ana",
+    "maquina": "agustina",
+    "nucleos": 64,
+    "horas": 12,
+    "fecha": "2026-11-04"
+  },
+  {
+    "proyecto": "FIS-0002",
+    "usuario": "luis",
+    "maquina": "cierzo",
+    "nucleos": 256,
+    "horas": 3,
+    "fecha": "2026-11-03"
+  },
+  {
+    "proyecto": "FIS-0002",
+    "usuario": "luis",
+    "maquina": "colossus",
+    "nucleos": 32,
+    "horas": 20,
+    "fecha": "2026-11-05"
+  }
+]
