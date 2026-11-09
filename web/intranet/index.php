@@ -5,7 +5,8 @@ $servicios = [
     'Servicio Git (Forgejo)'       => ['host' => 'git',       'port' => 3000, 'icono' => '📦'],
     'Servidor DNS (BIND9)'         => ['host' => 'host.docker.internal', 'port' => 53, 'icono' => '🌍'],
     'Directorio (OpenLDAP)'        => ['host' => 'ldap',      'port' => 389,  'icono' => '🔑'],
-    'Gestor LDAP (LAM)'            => ['host' => 'lam',       'port' => 80,   'icono' => '👥']
+    'Gestor LDAP (LAM)'            => ['host' => 'lam',       'port' => 80,   'icono' => '👥'],
+    'Panel del BIFI (Reto 1)'      => ['host' => 'panel',     'port' => 80,   'icono' => '📊']
 ];
 
 function verificar_puerto($host, $port) {
@@ -103,6 +104,9 @@ function verificar_puerto($host, $port) {
             </a>
             <a href="http://lam.huesca.empresa.lan:8080" class="btn-link" target="_blank">
                 <span>LAM (LDAP)</span>
+            </a>
+            <a href="http://<?= htmlspecialchars(explode(':', $_SERVER['HTTP_HOST'] ?? 'localhost')[0]) ?>:8081" class="btn-link" target="_blank">
+                <span>PANEL BIFI</span>
             </a>
         </div>
     </div>
