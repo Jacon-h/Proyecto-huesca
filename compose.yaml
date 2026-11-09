@@ -144,11 +144,27 @@ services:
       ldap:
         condition: service_healthy
 
+  # ============================================================ panel · IAW (reto 1)
+  panel:
+    <<: *comun
+    build: ./panel
+    container_name: panel
+    ports:
+      - "8081:80"                   # para probar sin el proxy de la sede
+    volumes:
+      - datos-panel:/var/www/panel/datos
+    networks: [frontal, trasera]    # frontal para publicar el puerto; trasera para llegar a db (RA6)
+
 volumes:
   datos:
   datos_ldap_db:
   datos_ldap_config:
+  datos-panel:
 
+networks:
+  frontal:
+  trasera:
+    internal: true
 networks:
   frontal:
   trasera:
