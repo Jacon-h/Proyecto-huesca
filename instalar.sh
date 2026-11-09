@@ -645,9 +645,9 @@ web() {
     docker rm -f mi-apache mi-postgres forgejo 2>/dev/null || true
 
     if command -v docker compose &>/dev/null && docker compose version &>/dev/null; then
-        docker compose up -d --build --force-recreate web ldap lam
+        docker compose up -d --build --force-recreate web ldap lam panel
     else
-        docker-compose up -d --build --force-recreate web ldap lam
+        docker-compose up -d --build --force-recreate web ldap lam panel
     fi
 }
 
@@ -682,9 +682,9 @@ verificar() {
     fi
 
     # Contenedores
-    esperar_contenedores mi-bind9 mi-apache mi-postgres forgejo
+    esperar_contenedores mi-bind9 mi-apache mi-postgres forgejo panel
     sleep 2        # margen para detectar reinicios en bucle
-    for c in mi-bind9 mi-apache mi-postgres forgejo; do
+    for c in mi-bind9 mi-apache mi-postgres forgejo panel; do
         estado=$(docker inspect -f '{{.State.Running}} {{.RestartCount}}' "$c" 2>/dev/null || echo "no-existe")
         if [ "$estado" = "true 0" ]; then bien "contenedor $c"
         else mal "contenedor $c ($estado)"; docker logs --tail 15 "$c" 2>&1 || true; fi
