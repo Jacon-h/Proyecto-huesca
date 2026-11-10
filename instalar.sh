@@ -78,9 +78,6 @@ IMAGEN_BIND="${IMAGEN_BIND:-internetsystemsconsortium/bind9:9.18}"
 
 # ================================================================== FASES
 
-# El reloj de la VM se atrasa (pausas, cuelgues de CPU) y entonces apt rechaza los repositorios
-# ("Not live until ...") y los docker build fallan. Se compara con la hora HTTP de un servidor
-# fiable y, si hay más de 60 s de diferencia, se corrige (también en el reloj hardware).
 ajustar_reloj() {
     asegurar_dns
     command -v curl &>/dev/null || { echo "    AVISO: no hay curl, no compruebo el reloj"; return 0; }
@@ -93,7 +90,7 @@ ajustar_reloj() {
     [ -n "$fecha" ] || { echo "    AVISO: no he podido consultar la hora en Internet; no compruebo el reloj"; return 0; }
     ref=$(date -u -d "$fecha" +%s 2>/dev/null) || return 0
     ahora=$(date -u +%s)
-    dif=$(( ref - ahora )); [ "$dif" -ge 0 ] || dif=$(( -dif ))
+    dif=$(( ref - me )); [ "$dif" -ge 0 ] || dif=$(( -dif ))
     if [ "$dif" -gt 60 ]; then
         echo "    AVISO: el reloj de la VM se desvía $dif s; lo corrijo"
         date -u -s "@$ref" >/dev/null
@@ -129,10 +126,6 @@ comprobar() {
     echo "    Todo listo para instalar la sede ${SEDE:-Huesca}"
 }
 
-
-# Descarga las imágenes de Docker en segundo plano mientras se hacen otras fases
-# (GNS3 tarda minutos). Si falla, no pasa nada: "compose up" volverá a intentarlo
-# y mostrará el error de verdad.
 PULL_PID=""
 precargar_imagenes() {
     ( docker compose pull -q --ignore-buildable >/var/log/instalar-pull.log 2>&1 || docker-compose pull -q --ignore-buildable >/var/log/instalar-pull.log 2>&1 ) &
@@ -142,7 +135,6 @@ esperar_imagenes() {
     [ -z "$PULL_PID" ] || wait "$PULL_PID" || echo "AVISO: alguna imagen no se ha podido descargar (ver /var/log/instalar-pull.log)"
     PULL_PID=""
 }
-
 
 red() {
     titulo "Red"
@@ -173,8 +165,6 @@ red() {
     systemctl restart sede-nat.service
 }
 
-# La fase red cambia la IP del servidor: solo se aplica sola si NO puede cortarte el acceso,
-# es decir, si la interfaz del aula existe y ya tiene la IP que dice sede.env.
 red_automatica() {
     if ip -4 -br addr show "${INTERFAZ_AULA:-eth0}" 2>/dev/null | grep -q "$IP_AULA_SOLO"; then
         red
@@ -184,7 +174,6 @@ red_automatica() {
     fi
 }
 
-
 sistema() {
     titulo "Sistema, usuarios y cortafuegos"
     asegurar_dns
@@ -193,7 +182,6 @@ sistema() {
     bash sistema/config_red_ufw.sh
     bash sistema/usuarios/crear_usuario.sh
 
-    # Solo se prohíbe la contraseña si alguien puede entrar con clave: si no, nos quedaríamos fuera.
     if [ -f sistema/usuarios/sshd_seguridad.conf ] && ls /home/*/.ssh/authorized_keys &>/dev/null; then
         install -m 644 sistema/usuarios/sshd_seguridad.conf /etc/ssh/sshd_config.d/seguridad.conf
         if sshd -t; then systemctl restart ssh
@@ -203,11 +191,7 @@ sistema() {
     fi
 }
 
-
-# ---------------------------------------------------------------- DNS
-
 liberar_puerto_53() {
-    # Ubuntu arranca systemd-resolved escuchando en 127.0.0.53:53 y BIND no puede usar el 53.
     if ss -lntup 2>/dev/null | grep -qE '127\.0\.0\.53(%lo)?:53 '; then
         echo "    Liberando el puerto 53 (systemd-resolved)"
         mkdir -p /etc/systemd/resolved.conf.d
@@ -217,9 +201,6 @@ liberar_puerto_53() {
     asegurar_dns
 }
 
-# Clave TSIG: firma las transferencias de zona entre el DNS principal y el secundario de GNS3.
-# Se crea UNA sola vez (si cambiara, el secundario dejaría de recibir las zonas) y se reparte
-# a BIND (generado/dns/tsig.conf) y al contexto de la imagen del secundario.
 clave_tsig() {
     mkdir -p generado/dns
     if [ ! -f generado/tsig.conf ]; then
@@ -235,20 +216,17 @@ dns() {
     titulo "Servidor DNS (BIND9)"
     liberar_puerto_53
 
-    # --- Valores derivados de sede.env
     IFS=. read -r o1 o2 o3 _ <<< "${RED_INTERNA:-10.2.0.0/16}"
-    ZONA_INVERSA="${o2}.${o1}.in-addr.arpa"                  # 2.10.in-addr.arpa
-    PTR_SERVIDOR="${IP_INTERNA_SOLO##*.}.${o3}"              # 1.0 (dentro de la zona anterior)
+    ZONA_INVERSA="${o2}.${o1}.in-addr.arpa"
+    PTR_SERVIDOR="${IP_INTERNA_SOLO##*.}.${o3}"
     ACL_AULA=""; for r in ${REDES_AULA:-}; do ACL_AULA+="$r; "; done
 
-    # Serial siempre creciente (YYYYMMDDHH, o el anterior +1): así el secundario se entera de cada cambio
     mkdir -p generado/dns/interna generado/dns/aula generado/dns-secundario
     SERIAL=$(date +%Y%m%d%H)
     if [ -f generado/serial ] && [ "$SERIAL" -le "$(cat generado/serial)" ]; then SERIAL=$(( $(cat generado/serial) + 1 )); fi
     echo "$SERIAL" > generado/serial
 
     export DOMINIO RED_INTERNA IP_INTERNA_SOLO IP_AULA_SOLO IP_DNS_SECUNDARIO ZONA_INVERSA PTR_SERVIDOR ACL_AULA SERIAL
-    # envsubst SOLO con esta lista, para no tocar los $TTL de las zonas
     VARS='${DOMINIO} ${RED_INTERNA} ${IP_INTERNA_SOLO} ${IP_AULA_SOLO} ${IP_DNS_SECUNDARIO} ${ZONA_INVERSA} ${PTR_SERVIDOR} ${ACL_AULA} ${SERIAL}'
 
     cp dns/named.conf dns/named.conf.options generado/dns/
@@ -259,24 +237,21 @@ dns() {
     chmod -R a+rX generado/dns
     clave_tsig
 
-    # Configuración del DNS secundario (vive en GNS3, no en este servidor)
     envsubst "$VARS" < dns/secundario/named.conf.local.tpl > generado/dns-secundario/named.conf.local
     echo "    Config del secundario generada en generado/dns-secundario/named.conf.local (ver dns/README.md)"
 
-    # --- Validar ANTES de tocar el contenedor: si hay un error, el DNS que ya funciona sigue vivo
     docker image inspect "$IMAGEN_BIND" &>/dev/null || docker pull -q "$IMAGEN_BIND" >/dev/null
     rc=0
     docker run --rm -v "$PWD/generado/dns:/etc/bind:ro" --entrypoint named-checkconf \
         "$IMAGEN_BIND" -z /etc/bind/named.conf || rc=$?
     if [ "$rc" -ge 125 ]; then
-        # 125-127: Docker no pudo ejecutar el comando; no es un error de la config
         echo "AVISO: no he podido validar la configuración con named-checkconf; sigo adelante."
     elif [ "$rc" -ne 0 ]; then
         echo "ERROR: la configuración de BIND no es válida (arriba está el motivo). No toco el DNS actual."
         exit 1
     fi
 
-    docker rm -f mi-bind9 2>/dev/null || true          # restos de intentos anteriores
+    docker rm -f mi-bind9 2>/dev/null || true
     if command -v docker compose &>/dev/null && docker compose version &>/dev/null; then
         docker compose up -d --force-recreate dns
     else
@@ -284,11 +259,7 @@ dns() {
     fi
 }
 
-
-# ---------------------------------------------------------------- GNS3
-# Servidor GNS3 en este servidor (puerto 3080, lo que muestra gns3.$DOMINIO por Apache),
-# imagen del DNS secundario y proyecto de la red interna importado y arrancado.
-GNS3_VERSION_PIP="2.2.61"        # solo se usa si el PPA no sirve
+GNS3_VERSION_PIP="2.2.61"
 GNS3_PUERTO=3080
 GNS3_LOG=/var/log/instalar-gns3.log
 GNS3_API="http://127.0.0.1:$GNS3_PUERTO/v2"
@@ -297,7 +268,7 @@ GNS3_PROYECTO="gns3/red_huesca.gns3project"
 gns3_usuario() {
     id gns3 &>/dev/null || useradd --system --create-home --home-dir /opt/gns3 --shell /usr/sbin/nologin gns3
     mkdir -p /opt/gns3
-    for g in docker kvm ubridge; do                      # solo los grupos que existan
+    for g in docker kvm ubridge; do
         getent group "$g" >/dev/null && usermod -aG "$g" gns3
     done
     return 0
@@ -313,7 +284,6 @@ gns3_paquetes_ppa() {
 
 gns3_paquetes_pip() {
     asegurar_dns
-    # gns3-server por pip; ubridge y vpcs desde el código oficial (el vpcs de Ubuntu es demasiado viejo)
     apt-get install -y python3-venv python3-pip build-essential libpcap-dev git dynamips
     python3 -m venv /opt/gns3/venv
     /opt/gns3/venv/bin/pip install --upgrade pip
@@ -352,23 +322,18 @@ gns3_instalar_servidor() {
         fi
     fi
 
-    # Ahora que los paquetes ya han creado el grupo "ubridge", metemos al usuario gns3 en él
     gns3_usuario
     gns3_permisos_ubridge
     chown -R gns3:gns3 /opt/gns3
 }
 
 gns3_permisos_ubridge() {
-    # ubridge conecta Cloud1 con br-virtual (net_admin y net_raw) y mete la interfaz de los
-    # nodos Docker en el namespace del contenedor (además sys_admin y sys_ptrace).
     local U; U="$(command -v ubridge)" || return 0
     U="$(readlink -f "$U")"
     if [ -u "$U" ]; then
-        # ubridge del PPA: setuid root. Con capabilities además, el kernel ignora el setuid: se quitan.
         setcap -r "$U" 2>/dev/null || true
         getent group ubridge >/dev/null && chgrp ubridge "$U" && chmod 4750 "$U"
     else
-        # ubridge compilado a mano: capacidades completas
         setcap cap_net_admin,cap_net_raw,cap_sys_admin,cap_sys_ptrace=ep "$U" 2>/dev/null || true
         chmod 755 "$U"
     fi
@@ -376,8 +341,6 @@ gns3_permisos_ubridge() {
 }
 
 gns3_imagen_dns_secundario() {
-    # El nodo Docker del proyecto usa la imagen dns-secundario:1.0, construida con las zonas
-    # que ha generado la fase dns.
     [ -f generado/dns-secundario/named.conf.local ] || dns
     local ctx=generado/dns-secundario/imagen
     rm -rf "$ctx"; mkdir -p "$ctx"
@@ -393,9 +356,7 @@ gns3_imagen_dns_secundario() {
 }
 
 gns3_servicio() {
-    # Unidad systemd propia: escucha en 0.0.0.0:3080, arranca después de Docker y sobrevive a reinicios.
     local bin espera=""; bin=$(command -v gns3server)
-    # Tras un reinicio, GNS3 espera (máx. 30 s) a que exista el puente antes de arrancar los nodos
     if [ -f /etc/netplan/60-sede.yaml ]; then
         cat > /usr/local/sbin/gns3-espera-puente.sh <<'ESPERA'
 #!/bin/bash
@@ -424,7 +385,6 @@ Restart=on-failure
 WantedBy=multi-user.target
 UNIT
 )
-    # Solo se toca systemd (y se reinicia GNS3) si la unidad ha cambiado o el servicio no responde
     local f=/etc/systemd/system/gns3server.service
     if [ "$unidad" != "$(cat "$f" 2>/dev/null)" ]; then
         printf '%s\n' "$unidad" > "$f"
@@ -436,7 +396,6 @@ UNIT
         systemctl restart gns3server
     fi
 
-    # Apache (en un contenedor) llega al servidor por la red de Docker: se lo permitimos a UFW.
     ufw allow from 172.16.0.0/12 to any port "$GNS3_PUERTO" proto tcp >/dev/null 2>&1 || true
 
     for _ in $(seq 1 60); do
@@ -451,17 +410,16 @@ gns3_id_proyecto() {
     python3 -c 'import sys,json,zipfile; print(json.loads(zipfile.ZipFile(sys.argv[1]).read("project.gns3"))["project_id"])' "$GNS3_PROYECTO"
 }
 
-gns3_nodos_parados() {      # imprime cuántos nodos del proyecto NO están arrancados
+gns3_nodos_parados() {
     curl -s "$GNS3_API/projects/$1/nodes" 2>/dev/null | python3 -c '
 import sys, json
 try: print(sum(1 for n in json.load(sys.stdin) if n.get("status") != "started"))
 except Exception: print(99)'
 }
 
-gns3_importar() {           # $1 = id del proyecto
+gns3_importar() {
     curl -fsS -o /dev/null -X POST -H 'Content-Type: application/octet-stream' \
         --data-binary @"$GNS3_PROYECTO" "$GNS3_API/projects/$1/import?name=red%20huesca"
-    # Que se abra y arranque solo cada vez que arranque el servidor GNS3 (también tras un reinicio)
     curl -fsS -o /dev/null -X PUT -H 'Content-Type: application/json' \
         -d '{"auto_open":true,"auto_start":true}' "$GNS3_API/projects/$1"
 }
@@ -478,14 +436,13 @@ gns3_proyecto() {
     for intento in 1 2 3; do
         curl -s -o /dev/null -X POST -H 'Content-Type: application/json' -d '{}' "$GNS3_API/projects/$id/open"
         curl -s -o /dev/null -X POST -H 'Content-Type: application/json' -d '{}' "$GNS3_API/projects/$id/nodes/start"
-        # En vez de esperar 3 s a ciegas, se mira cada segundo (hasta 15) si ya están todos arrancados
         for _ in $(seq 1 15); do
             parados=$(gns3_nodos_parados "$id")
             [ "$parados" = 0 ] && break
             sleep 1
         done
         [ "$parados" = 0 ] && break
-        if [ "$intento" = 2 ]; then       # último recurso: proyecto limpio (p. ej. si borraron su contenedor)
+        if [ "$intento" = 2 ]; then
             echo "    Los nodos no arrancan; vuelvo a importar el proyecto desde cero"
             curl -s -o /dev/null -X DELETE "$GNS3_API/projects/$id"
             gns3_importar "$id" || true
@@ -510,22 +467,13 @@ gns3() {
     gns3_proyecto
 }
 
-
-# ---------------------------------------------------------------- Forgejo
-# Restaura en este Forgejo los datos de OTRO Forgejo y deja el SSH (puerto 2222) funcionando.
-# Solo restaura si NO hay datos todavía: nunca pisa un Forgejo que ya funciona.
-#
-#   restauracion/forgejo-dump.zip   copia hecha con `forgejo dump` en el Forgejo de origen
-#   restauracion/forgejo-ssh/       (opcional) carpeta /data/ssh del origen: conserva la huella del servidor
-# La carpeta restauracion/ NO va a Git (lleva contraseñas, claves y todos los repositorios).
 FORGEJO_DATOS=forgejo-docker
 FORGEJO_DUMP=restauracion/forgejo-dump.zip
 FORGEJO_SSH_ORIGEN=restauracion/forgejo-ssh
-FORGEJO_UID=1000                 # el mismo USER_UID/USER_GID de compose.yaml
+FORGEJO_UID=1000
 
-forgejo_entorno() {              # variables que lee compose.yaml en el servicio git
+forgejo_entorno() {
     export DOMINIO
-    # El bloqueo del instalador solo se activa si la base de datos ya existe en disco
     if [ -f "$FORGEJO_DATOS/gitea/gitea.db" ]; then FORGEJO_INSTALL_LOCK=true
     else FORGEJO_INSTALL_LOCK=false; fi
     export FORGEJO_INSTALL_LOCK
@@ -534,8 +482,6 @@ forgejo_entorno() {              # variables que lee compose.yaml en el servicio
 forgejo_restaurar() {
     [ -f "$FORGEJO_DUMP" ] || return 0
 
-    # sqlite3 y unzip ANTES de contar usuarios. Antes se instalaban después: sin sqlite3 el recuento
-    # daba 0 y se restauraba encima de un Forgejo que ya tenía datos.
     command -v sqlite3 &>/dev/null && command -v unzip &>/dev/null \
         || { asegurar_dns; apt-get install -y unzip sqlite3 >/dev/null; }
 
@@ -567,7 +513,6 @@ forgejo_restaurar() {
     fi
     rm -rf "$tmp"
 
-    # Forzar INSTALL_LOCK = true en app.ini
     local ini="$FORGEJO_DATOS/gitea/conf/app.ini"
     if [ -f "$ini" ]; then
         if grep -q "INSTALL_LOCK" "$ini"; then sed -i 's/INSTALL_LOCK.*/INSTALL_LOCK = true/' "$ini"
@@ -578,21 +523,20 @@ forgejo_restaurar() {
     echo "    Datos de Forgejo restaurados correctamente."
 }
 
-forgejo_ssh_preparar() {         # claves del servidor y permisos que exige sshd dentro del contenedor
+forgejo_ssh_preparar() {
     mkdir -p "$FORGEJO_DATOS/ssh" "$FORGEJO_DATOS/git/.ssh"
-    # Misma huella que el Forgejo de origen. Si no hay claves, el contenedor genera unas nuevas.
     if [ -d "$FORGEJO_SSH_ORIGEN" ] && ! ls "$FORGEJO_DATOS"/ssh/ssh_host_*_key &>/dev/null; then
         cp -a "$FORGEJO_SSH_ORIGEN"/ssh_host_* "$FORGEJO_DATOS/ssh/"
     fi
     chown -R "$FORGEJO_UID:$FORGEJO_UID" "$FORGEJO_DATOS"
-    chmod 755 "$FORGEJO_DATOS/git"                      # sshd rechaza un home con permisos de escritura para otros
+    chmod 755 "$FORGEJO_DATOS/git"
     chmod 700 "$FORGEJO_DATOS/git/.ssh"
     [ ! -f "$FORGEJO_DATOS/git/.ssh/authorized_keys" ] || chmod 600 "$FORGEJO_DATOS/git/.ssh/authorized_keys"
     chmod 600 "$FORGEJO_DATOS"/ssh/ssh_host_*_key 2>/dev/null || true
     chmod 644 "$FORGEJO_DATOS"/ssh/ssh_host_*_key.pub 2>/dev/null || true
 }
 
-forgejo_ssh_activar() {          # con el contenedor en marcha: authorized_keys y hooks salen de la base de datos
+forgejo_ssh_activar() {
     if command -v docker compose &>/dev/null && docker compose version &>/dev/null; then
         docker compose up -d git
     else
@@ -610,12 +554,11 @@ forgejo_ssh_activar() {          # con el contenedor en marcha: authorized_keys 
 
 forgejo() {
     titulo "Forgejo (datos de otro Forgejo y SSH)"
-    forgejo_restaurar          # 1. restaura el .zip (crea gitea.db)
-    forgejo_ssh_preparar       # 2. permisos
-    forgejo_entorno            # 3. FORGEJO_INSTALL_LOCK (ahora ya ve gitea.db)
+    forgejo_restaurar
+    forgejo_ssh_preparar
+    forgejo_entorno
     if [ -f "$FORGEJO_DATOS/gitea/gitea.db" ]; then forgejo_ssh_activar; fi
 }
-
 
 # ---------------------------------------------------------------- Web, BD, LDAP
 
@@ -623,19 +566,18 @@ web() {
     titulo "Servidor Web, Base de Datos, Forgejo y OpenLDAP/LAM"
 
     mkdir -p secretos
-    [ -d secretos/intranet.htpasswd ] && rm -rf secretos/intranet.htpasswd   # Docker lo crea como carpeta si no existe
+    [ -d secretos/intranet.htpasswd ] && rm -rf secretos/intranet.htpasswd
     printf '%s:%s\n' "${INTRANET_USUARIO:-admin}" "$(openssl passwd -apr1 "${INTRANET_CLAVE:-secret}")" > secretos/intranet.htpasswd
     chmod 755 secretos
     chmod 644 secretos/intranet.htpasswd
 
-    # LDIF de estructura desde la plantilla, si existe
     if [ -f ldif/01_estructura.ldif.tpl ]; then
         echo "    Generando ldif/01_estructura.ldif desde plantilla..."
         envsubst < ldif/01_estructura.ldif.tpl > ldif/01_estructura.ldif
     fi
 
     forgejo_entorno
-    esperar_imagenes                                  # las descargas en segundo plano ya deberían haber acabado
+    esperar_imagenes
 
     if command -v docker compose &>/dev/null && docker compose version &>/dev/null; then
         docker compose down ldap lam -v 2>/dev/null || true
@@ -649,12 +591,19 @@ web() {
     else
         docker-compose up -d --build --force-recreate web ldap lam
     fi
-}
 
+    # --- Ajuste de permisos locales en PostgreSQL ---
+    echo "    Configurando acceso local en PostgreSQL (pg_hba.conf)..."
+    esperar_contenedores mi-postgres
+    until docker exec mi-postgres pg_isready -U postgres >/dev/null 2>&1; do sleep 1; done
+    docker exec -u postgres mi-postgres sh -c \
+        "sed -i '1i local   all             all                                     trust' /var/lib/postgresql/data/pg_hba.conf"
+    docker exec -u postgres mi-postgres psql -U postgres -c "SELECT pg_reload_conf();" >/dev/null
+}
 
 # ---------------------------------------------------------------- Verificación
 
-esperar_contenedores() {     # espera hasta 30 s a que estén todos en marcha (antes: sleep 5 fijo)
+esperar_contenedores() {
     local c ok
     for _ in $(seq 1 30); do
         ok=1
@@ -671,7 +620,6 @@ verificar() {
     titulo "Verificando la sede"
     local r c estado huella pid
 
-    # Red
     if [ -n "${BRIDGE_INTERNA:-}" ] && ip link show "$BRIDGE_INTERNA" &>/dev/null; then
         ip -br addr show "$BRIDGE_INTERNA" | grep -q "$IP_INTERNA_SOLO" && bien "puente" || mal "puente"
         [ "$(sysctl -n net.ipv4.ip_forward)" = 1 ] && bien "forwarding" || mal "forwarding"
@@ -681,21 +629,18 @@ verificar() {
         echo "AVISO: no existe ${BRIDGE_INTERNA:-bridge} (fase red no aplicada): salto las pruebas de red."
     fi
 
-    # Contenedores
     esperar_contenedores mi-bind9 mi-apache mi-postgres forgejo
-    sleep 2        # margen para detectar reinicios en bucle
+    sleep 2
     for c in mi-bind9 mi-apache mi-postgres forgejo; do
         estado=$(docker inspect -f '{{.State.Running}} {{.RestartCount}}' "$c" 2>/dev/null || echo "no-existe")
         if [ "$estado" = "true 0" ]; then bien "contenedor $c"
         else mal "contenedor $c ($estado)"; docker logs --tail 15 "$c" 2>&1 || true; fi
     done
 
-    # Base de datos: el usuario de la web puede leer pero NO borrar
     r=$(docker exec mi-postgres psql -U "${DB_USER:-web}" -d "${DB_NAME:-huesca}" -c "DELETE FROM inventario WHERE false" 2>&1 || true)
     if echo "$r" | grep -q "permission denied"; then bien "usuario ${DB_USER:-web} sin permiso de borrado"
     else mal "usuario ${DB_USER:-web}: no tiene el permiso esperado (¿existe el rol? $r)"; fi
 
-    # SSH de Forgejo (2222): debe enseñar su clave y, si hay claves de origen, ser la misma
     if command -v ssh-keyscan &>/dev/null; then
         huella=$(ssh-keyscan -T 3 -p 2222 127.0.0.1 2>/dev/null | grep -m1 ssh-ed25519 | awk '{print $3}' || true)
         if [ -z "$huella" ]; then mal "SSH de Forgejo: no responde en el 2222"
@@ -705,12 +650,10 @@ verificar() {
         else bien "SSH de Forgejo (2222)"; fi
     fi
 
-    # DNS
     if command -v dig &>/dev/null; then
         r=$(dig +short +time=2 +tries=1 @127.0.0.1 "www.${DOMINIO:-huesca.local}" || true)
         [ -n "$r" ] && bien "DNS www -> $r" || mal "DNS: www.${DOMINIO:-huesca.local} no resuelve"
 
-        # Vista del aula: preguntamos desde la IP del aula del propio servidor (BIND nos ve como "aula")
         if [ -n "${INTERFAZ_AULA:-}" ] && ip -4 -br addr show "$INTERFAZ_AULA" 2>/dev/null | grep -q "$IP_AULA_SOLO"; then
             r=$(dig +short +time=2 +tries=1 -b "$IP_AULA_SOLO" "@$IP_AULA_SOLO" "www.${DOMINIO:-huesca.local}" A | tail -1 || true)
             [ "$r" = "$IP_AULA_SOLO" ] && bien "DNS vista aula www -> $r" \
@@ -718,7 +661,6 @@ verificar() {
         fi
     fi
 
-    # GNS3: servidor, proxy de Apache (gns3.$DOMINIO) y nodos del proyecto
     if command -v gns3server &>/dev/null; then
         r=$(curl -fs "$GNS3_API/version" 2>/dev/null | python3 -c 'import sys,json; print(json.load(sys.stdin)["version"])' 2>/dev/null || true)
         [ -n "$r" ] && bien "servidor GNS3 $r (puerto $GNS3_PUERTO)" || mal "servidor GNS3: no responde en el puerto $GNS3_PUERTO"
@@ -743,7 +685,6 @@ verificar() {
     if [ "$FALLOS" -eq 0 ]; then echo "=== TODO BIEN TODO CORRECTO Y YO QUE ME ALEGRO ==="
     else echo "=== HAY COMPROBACIONES FALLIDAS ==="; exit 1; fi
 }
-
 
 # ================================================================== QUÉ FASES SE EJECUTAN
 
