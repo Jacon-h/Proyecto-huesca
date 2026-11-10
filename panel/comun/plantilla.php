@@ -28,14 +28,14 @@ function cabecera(string $titulo, ?array $u = null): void
     <?php
 }
 
-/** TODO (RA5 g). El menú tiene que cambiar según el perfil: «Nuevo proyecto», solo el CESAR. */
+/** (RA5 g). El menú cambia según el perfil: «Nuevo proyecto», solo el CESAR. */
 function menu(array $u): string
 {
-    $enlaces = [
-        'index.php'          => 'Proyectos',
-        'proyecto-nuevo.php' => 'Nuevo proyecto',
-        'logout.php'         => 'Salir',
-    ];
+    $enlaces = ['index.php' => 'Proyectos'];
+    if ($u['perfil'] === 'cesar') {
+        $enlaces['proyecto-nuevo.php'] = 'Nuevo proyecto';
+    }
+    $enlaces['logout.php'] = 'Salir';
 
     $html = '';
     foreach ($enlaces as $url => $texto) {
