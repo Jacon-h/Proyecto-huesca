@@ -32,13 +32,13 @@ $coste = $nh * (PRECIO_NUCLEO_HORA[$p['tarifa']] ?? 0);
 
 cabecera($p['codigo'] . ' · ' . $p['titulo'], $u);
 ?>
-<p>Responsable: <?= e(buscar_usuario($p['responsable'])['nombre'] ?? $p['responsable']) ?> ·
+<p>Responsable: <?= e(nombre_de($p['responsable'])) ?> ·
    Tarifa <?= e(TARIFAS[$p['tarifa']] ?? $p['tarifa']) ?></p>
 
 <h2>Miembros</h2>
 <ul>
   <?php foreach ($p['miembros'] as $m): ?>
-  <li><?= e(buscar_usuario($m)['nombre'] ?? $m) ?>
+  <li><?= e(nombre_de($m)) ?>
     <?php if (puede_gestionar($u, $p)): ?>
     <form method="post" class="en-linea"><input type="hidden" name="accion" value="quitar">
       <input type="hidden" name="investigador" value="<?= e($m) ?>"><button>Quitar</button></form>
@@ -68,7 +68,7 @@ cabecera($p['codigo'] . ' · ' . $p['titulo'], $u);
   <?php foreach ($usos as $uso): ?>
   <tr>
     <td><?= e($uso['fecha']) ?></td>
-    <td><?= e(buscar_usuario($uso['usuario'])['nombre'] ?? $uso['usuario']) ?></td>
+    <td><?= e(nombre_de($uso['usuario'])) ?></td>
     <td><?= e($uso['maquina']) ?></td>
     <td class="num"><?= (int) $uso['nucleos'] ?></td>
     <td class="num"><?= number_format((float) $uso['horas'], 1, ',', '.') ?></td>
