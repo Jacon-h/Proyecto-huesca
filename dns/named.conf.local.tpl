@@ -35,7 +35,11 @@ view "aula" {
         8.8.8.8;
         1.1.1.1;
     };
-
+    zone "ad.${DOMINIO}" {
+        type forward;
+        forward only;
+        forwarders { ${IPS_DNS_ACD}; };
+    };
     zone "${DOMINIO}" {
         type master;
         file "/etc/bind/aula/db.${DOMINIO}";
