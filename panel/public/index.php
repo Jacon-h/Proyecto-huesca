@@ -17,7 +17,7 @@ if ($proyectos === []) {
   <tr>
     <td><a href="proyecto.php?codigo=<?= urlencode($p['codigo']) ?>"><?= e($p['codigo']) ?></a></td>
     <td><?= e($p['titulo']) ?></td>
-    <td><?= e(buscar_usuario($p['responsable'])['nombre'] ?? $p['responsable']) ?></td>
+    <td><?= e(nombre_de($p['responsable'])) ?></td>
     <td><?= e(TARIFAS[$p['tarifa']] ?? $p['tarifa']) ?></td>
     <td class="num"><?= number_format(nucleo_horas(usos_de($p['codigo'])), 1, ',', '.') ?></td>
   </tr>
