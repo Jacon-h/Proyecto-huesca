@@ -5,7 +5,7 @@
 # Ajustes que comparten todos los servicios (se reutilizan con "<<: *comun")
 x-comun: &comun
   restart: unless-stopped
-  logging:                          # sin esto los logs crecen sin límite y llenan el disco de la VM
+  logging:                         # sin esto los logs crecen sin límite y llenan el disco de la VM
     driver: json-file
     options:
       max-size: "10m"
@@ -42,6 +42,8 @@ services:
     <<: *comun
     image: postgres:16
     container_name: mi-postgres
+    ports:
+      - "5432:5432"                 # Expone PostgreSQL para clientes externos (ASGBD)
     environment:
       # Administrador de la base: dueño de las tablas, NO lo usa la web
       POSTGRES_DB: ${DB_NAME:?falta DB_NAME en .env}
@@ -53,6 +55,9 @@ services:
     volumes:
       - datos:/var/lib/postgresql/data
       - ./db:/docker-entrypoint-initdb.d:ro
+      - ./db/conf/pg_hba.conf:/etc/postgresql/pg_hba.conf:ro
+      - ./db/conf/postgresql.conf:/etc/postgresql/postgresql.conf:ro
+    command: postgres -c config_file=/etc/postgresql/postgresql.conf -c hba_file=/etc/postgresql/pg_hba.conf
     networks: [trasera]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
