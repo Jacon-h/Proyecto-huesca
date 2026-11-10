@@ -90,7 +90,7 @@ ajustar_reloj() {
     [ -n "$fecha" ] || { echo "    AVISO: no he podido consultar la hora en Internet; no compruebo el reloj"; return 0; }
     ref=$(date -u -d "$fecha" +%s 2>/dev/null) || return 0
     ahora=$(date -u +%s)
-    dif=$(( ref - ahora )); [ "$dif" -ge 0 ] \vert{}\vert{} dif=$(( -dif ))
+    dif=$(( ref - ahora )); [ "$dif" -ge 0 ] || dif=$(( -dif ))
     if [ "$dif" -gt 60 ]; then
         echo "    AVISO: el reloj de la VM se desvía $dif s; lo corrijo"
         date -u -s "@$ref" >/dev/null
@@ -117,7 +117,7 @@ comprobar() {
     fi
     set -a; source .env; set +a
     for v in DB_NAME DB_USER DB_PASSWORD POSTGRES_PASSWORD INTRANET_USUARIO INTRANET_CLAVE LDAP_ADMIN_PASSWORD LDAP_CONFIG_PASSWORD LAM_PASSWORD; do
-        [ -n "${!v:-}" ] \vert{}\vert{} { echo "ERROR: falta $v en .env"; exit 1; }
+        [ -n "${!v:-}" ] || { echo "ERROR: falta $v en .env"; exit 1; }
     done
     [ "$DB_USER" != postgres ] || { echo "ERROR: DB_USER no puede ser 'postgres' (es el administrador)"; exit 1; }
     if ! docker compose version >/dev/null 2>&1 && ! docker-compose version >/dev/null 2>&1; then
@@ -132,7 +132,7 @@ precargar_imagenes() {
     PULL_PID=$!
 }
 esperar_imagenes() {
-    [ -z "$PULL_PID" ] \vert{}\vert{} wait "$PULL_PID" || echo "AVISO: alguna imagen no se ha podido descargar (ver /var/log/instalar-pull.log)"
+    [ -z "$PULL_PID" ] || wait "$PULL_PID" || echo "AVISO: alguna imagen no se ha podido descargar (ver /var/log/instalar-pull.log)"
     PULL_PID=""
 }
 
@@ -146,7 +146,7 @@ red() {
     if ! cmp -s /tmp/60-sede.yaml /etc/netplan/60-sede.yaml; then
         mkdir -p /etc/netplan/original
         for f in /etc/netplan/*.yaml; do
-            [ "$f" = /etc/netplan/60-sede.yaml ] || [ ! -e "$f" ] \vert{}\vert{} mv "$f" /etc/netplan/original/
+            [ "$f" = /etc/netplan/60-sede.yaml ] || [ ! -e "$f" ] || mv "$f" /etc/netplan/original/
         done
         install -m 600 /tmp/60-sede.yaml /etc/netplan/60-sede.yaml
         netplan generate
@@ -166,10 +166,10 @@ red() {
 }
 
 red_automatica() {
-    if ip -4 -br addr show "${INTERFAZ_AULA:-eth0}" 2>/dev/null \vert{} grep -q "$IP_AULA_SOLO"; then
+    if ip -4 -br addr show "${INTERFAZ_AULA:-eth0}" 2>/dev/null | grep -q "$IP_AULA_SOLO"; then
         red
     else
-        echo "AVISO: ${INTERFAZ_AULA:-interfaz} no existe o no tiene$IP_AULA_SOLO: salto la fase red."
+        echo "AVISO: ${INTERFAZ_AULA:-interfaz} no existe o no tiene $IP_AULA_SOLO: salto la fase red."
         echo "       Si es el servidor real, ejecuta:  sudo ./instalar.sh red"
     fi
 }
@@ -223,11 +223,11 @@ dns() {
 
     mkdir -p generado/dns/interna generado/dns/aula generado/dns-secundario
     SERIAL=$(date +%Y%m%d%H)
-    if [ -f generado/serial ] && [ "$SERIAL" -le "$(cat generado/serial)" ]; then SERIAL=$(($(cat generado/serial) + 1 )); fi
+    if [ -f generado/serial ] && [ "$SERIAL" -le "$(cat generado/serial)" ]; then SERIAL=$(( $(cat generado/serial) + 1 )); fi
     echo "$SERIAL" > generado/serial
 
     export DOMINIO RED_INTERNA IP_INTERNA_SOLO IP_AULA_SOLO IP_DNS_SECUNDARIO ZONA_INVERSA PTR_SERVIDOR ACL_AULA SERIAL
-    VARS='${DOMINIO} ${RED_INTERNA}${IP_INTERNA_SOLO} ${IP_AULA_SOLO}${IP_DNS_SECUNDARIO} ${ZONA_INVERSA}${PTR_SERVIDOR} ${ACL_AULA}${SERIAL}'
+    VARS='${DOMINIO} ${RED_INTERNA} ${IP_INTERNA_SOLO} ${IP_AULA_SOLO} ${IP_DNS_SECUNDARIO} ${ZONA_INVERSA} ${PTR_SERVIDOR} ${ACL_AULA} ${SERIAL}'
 
     cp dns/named.conf dns/named.conf.options generado/dns/
     envsubst "$VARS" < dns/named.conf.local.tpl   > generado/dns/named.conf.local
@@ -243,7 +243,7 @@ dns() {
     docker image inspect "$IMAGEN_BIND" &>/dev/null || docker pull -q "$IMAGEN_BIND" >/dev/null
     rc=0
     docker run --rm -v "$PWD/generado/dns:/etc/bind:ro" --entrypoint named-checkconf \
-        "$IMAGEN_BIND" -z /etc/bind/named.conf \vert{}\vert{} rc=$?
+        "$IMAGEN_BIND" -z /etc/bind/named.conf || rc=$?
     if [ "$rc" -ge 125 ]; then
         echo "AVISO: no he podido validar la configuración con named-checkconf; sigo adelante."
     elif [ "$rc" -ne 0 ]; then
@@ -349,7 +349,7 @@ gns3_imagen_dns_secundario() {
     clave_tsig
     cp generado/tsig.conf "$ctx/"
     export IP_DNS_SECUNDARIO IP_INTERNA_SOLO PREFIJO_INTERNA
-    envsubst '${IP_DNS_SECUNDARIO} ${PREFIJO_INTERNA}${IP_INTERNA_SOLO}' \
+    envsubst '${IP_DNS_SECUNDARIO} ${PREFIJO_INTERNA} ${IP_INTERNA_SOLO}' \
         < gns3/dns-secundario/entrypoint.sh.tpl > "$ctx/entrypoint.sh"
     docker build -q -t dns-secundario:1.0 "$ctx" >/dev/null
     echo "    Imagen dns-secundario:1.0 lista"
@@ -496,3 +496,216 @@ forgejo_restaurar() {
     fi
 
     echo "    Base de datos vacía o no existente. Restaurando desde $FORGEJO_DUMP..."
+    docker rm -f forgejo 2>/dev/null || true
+
+    local tmp; tmp=$(mktemp -d)
+    unzip -q "$FORGEJO_DUMP" -d "$tmp"
+
+    mkdir -p "$FORGEJO_DATOS/gitea/conf" "$FORGEJO_DATOS/git/repositories"
+    if [ -f "$tmp/app.ini" ]; then cp "$tmp/app.ini" "$FORGEJO_DATOS/gitea/conf/app.ini"; fi
+    if [ -d "$tmp/data" ];  then cp -a "$tmp/data/."  "$FORGEJO_DATOS/gitea/"; fi
+    if [ -d "$tmp/repos" ]; then cp -a "$tmp/repos/." "$FORGEJO_DATOS/git/repositories/"; fi
+
+    local sql; sql=$(ls "$tmp"/*-db.sql 2>/dev/null | head -1 || true)
+    if [ -n "$sql" ]; then
+        rm -f "$FORGEJO_DATOS/gitea/gitea.db"
+        sqlite3 "$FORGEJO_DATOS/gitea/gitea.db" < "$sql"
+    fi
+    rm -rf "$tmp"
+
+    local ini="$FORGEJO_DATOS/gitea/conf/app.ini"
+    if [ -f "$ini" ]; then
+        if grep -q "INSTALL_LOCK" "$ini"; then sed -i 's/INSTALL_LOCK.*/INSTALL_LOCK = true/' "$ini"
+        else printf '\n[security]\nINSTALL_LOCK = true\n' >> "$ini"; fi
+    fi
+
+    chown -R "$FORGEJO_UID:$FORGEJO_UID" "$FORGEJO_DATOS"
+    echo "    Datos de Forgejo restaurados correctamente."
+}
+
+forgejo_ssh_preparar() {
+    mkdir -p "$FORGEJO_DATOS/ssh" "$FORGEJO_DATOS/git/.ssh"
+    if [ -d "$FORGEJO_SSH_ORIGEN" ] && ! ls "$FORGEJO_DATOS"/ssh/ssh_host_*_key &>/dev/null; then
+        cp -a "$FORGEJO_SSH_ORIGEN"/ssh_host_* "$FORGEJO_DATOS/ssh/"
+    fi
+    chown -R "$FORGEJO_UID:$FORGEJO_UID" "$FORGEJO_DATOS"
+    chmod 755 "$FORGEJO_DATOS/git"
+    chmod 700 "$FORGEJO_DATOS/git/.ssh"
+    [ ! -f "$FORGEJO_DATOS/git/.ssh/authorized_keys" ] || chmod 600 "$FORGEJO_DATOS/git/.ssh/authorized_keys"
+    chmod 600 "$FORGEJO_DATOS"/ssh/ssh_host_*_key 2>/dev/null || true
+    chmod 644 "$FORGEJO_DATOS"/ssh/ssh_host_*_key.pub 2>/dev/null || true
+}
+
+forgejo_ssh_activar() {
+    if command -v docker compose &>/dev/null && docker compose version &>/dev/null; then
+        docker compose up -d git
+    else
+        docker-compose up -d git
+    fi
+    for _ in $(seq 1 60); do
+        curl -fs http://127.0.0.1:3000/api/healthz >/dev/null 2>&1 && break
+        sleep 1
+    done
+    docker exec -u "$FORGEJO_UID" forgejo forgejo admin regenerate hooks \
+        || echo "AVISO: no he podido regenerar los hooks de Forgejo"
+    docker exec -u "$FORGEJO_UID" forgejo forgejo admin regenerate keys \
+        || echo "AVISO: no he podido regenerar authorized_keys: el SSH de Forgejo no funcionará"
+}
+
+forgejo() {
+    titulo "Forgejo (datos de otro Forgejo y SSH)"
+    forgejo_restaurar
+    forgejo_ssh_preparar
+    forgejo_entorno
+    if [ -f "$FORGEJO_DATOS/gitea/gitea.db" ]; then forgejo_ssh_activar; fi
+}
+
+# ---------------------------------------------------------------- Web, BD, LDAP
+
+web() {
+    titulo "Servidor Web, Base de Datos, Forgejo y OpenLDAP/LAM"
+
+    mkdir -p secretos
+    [ -d secretos/intranet.htpasswd ] && rm -rf secretos/intranet.htpasswd
+    printf '%s:%s\n' "${INTRANET_USUARIO:-admin}" "$(openssl passwd -apr1 "${INTRANET_CLAVE:-secret}")" > secretos/intranet.htpasswd
+    chmod 755 secretos
+    chmod 644 secretos/intranet.htpasswd
+
+    if [ -f ldif/01_estructura.ldif.tpl ]; then
+        echo "    Generando ldif/01_estructura.ldif desde plantilla..."
+        envsubst < ldif/01_estructura.ldif.tpl > ldif/01_estructura.ldif
+    fi
+
+    forgejo_entorno
+    esperar_imagenes
+
+    if command -v docker compose &>/dev/null && docker compose version &>/dev/null; then
+        docker compose down ldap lam -v 2>/dev/null || true
+    else
+        docker-compose down ldap lam -v 2>/dev/null || true
+    fi
+    docker rm -f mi-apache mi-postgres forgejo 2>/dev/null || true
+
+    if command -v docker compose &>/dev/null && docker compose version &>/dev/null; then
+        docker compose up -d --build --force-recreate web ldap lam
+    else
+        docker-compose up -d --build --force-recreate web ldap lam
+    fi
+
+    # --- Ajuste de permisos locales en PostgreSQL ---
+    echo "    Configurando acceso local en PostgreSQL (pg_hba.conf)..."
+    esperar_contenedores mi-postgres
+    until docker exec mi-postgres pg_isready -U postgres >/dev/null 2>&1; do sleep 1; done
+
+    # Obtener ruta exacta del archivo pg_hba.conf activo dinámicamente
+    HBA_FILE=$(docker exec mi-postgres psql -U postgres -t -A -c "SHOW hba_file;" 2>/dev/null | tr -d '\r')
+
+    if [ -n "$HBA_FILE" ]; then
+        docker exec -u postgres mi-postgres sh -c \
+            "sed -i '1i local   all             all                                     trust' \"$HBA_FILE\" 2>/dev/null || true"
+        docker exec -u postgres mi-postgres psql -U postgres -c "SELECT pg_reload_conf();" >/dev/null 2>&1 || true
+    fi
+}
+
+# ---------------------------------------------------------------- Verificación
+
+esperar_contenedores() {
+    local c ok
+    for _ in $(seq 1 30); do
+        ok=1
+        for c in "$@"; do
+            [ "$(docker inspect -f '{{.State.Running}}' "$c" 2>/dev/null)" = true ] || ok=0
+        done
+        [ "$ok" = 1 ] && return 0
+        sleep 1
+    done
+    return 0
+}
+
+verificar() {
+    titulo "Verificando la sede"
+    local r c estado huella pid
+
+    if [ -n "${BRIDGE_INTERNA:-}" ] && ip link show "$BRIDGE_INTERNA" &>/dev/null; then
+        ip -br addr show "$BRIDGE_INTERNA" | grep -q "$IP_INTERNA_SOLO" && bien "puente" || mal "puente"
+        [ "$(sysctl -n net.ipv4.ip_forward)" = 1 ] && bien "forwarding" || mal "forwarding"
+        iptables -t nat -C POSTROUTING -s "$RED_INTERNA" -o "$INTERFAZ_AULA" -j MASQUERADE 2>/dev/null \
+            && bien "NAT" || mal "NAT"
+    else
+        echo "AVISO: no existe ${BRIDGE_INTERNA:-bridge} (fase red no aplicada): salto las pruebas de red."
+    fi
+
+    esperar_contenedores mi-bind9 mi-apache mi-postgres forgejo
+    sleep 2
+    for c in mi-bind9 mi-apache mi-postgres forgejo; do
+        estado=$(docker inspect -f '{{.State.Running}} {{.RestartCount}}' "$c" 2>/dev/null || echo "no-existe")
+        if [ "$estado" = "true 0" ]; then bien "contenedor $c"
+        else mal "contenedor $c ($estado)"; docker logs --tail 15 "$c" 2>&1 || true; fi
+    done
+
+    r=$(docker exec mi-postgres psql -U "${DB_USER:-web}" -d "${DB_NAME:-huesca}" -c "DELETE FROM inventario WHERE false" 2>&1 || true)
+    if echo "$r" | grep -q "permission denied"; then bien "usuario ${DB_USER:-web} sin permiso de borrado"
+    else mal "usuario ${DB_USER:-web}: no tiene el permiso esperado (¿existe el rol? $r)"; fi
+
+    if command -v ssh-keyscan &>/dev/null; then
+        huella=$(ssh-keyscan -T 3 -p 2222 127.0.0.1 2>/dev/null | grep -m1 ssh-ed25519 | awk '{print $3}' || true)
+        if [ -z "$huella" ]; then mal "SSH de Forgejo: no responde en el 2222"
+        elif [ -f "$FORGEJO_SSH_ORIGEN/ssh_host_ed25519_key.pub" ] \
+             && [ "$huella" != "$(awk '{print $2}' "$FORGEJO_SSH_ORIGEN/ssh_host_ed25519_key.pub")" ]; then
+            mal "SSH de Forgejo: la clave del servidor no es la del Forgejo de origen"
+        else bien "SSH de Forgejo (2222)"; fi
+    fi
+
+    if command -v dig &>/dev/null; then
+        r=$(dig +short +time=2 +tries=1 @127.0.0.1 "www.${DOMINIO:-huesca.local}" || true)
+        [ -n "$r" ] && bien "DNS www -> $r" || mal "DNS: www.${DOMINIO:-huesca.local} no resuelve"
+
+        if [ -n "${INTERFAZ_AULA:-}" ] && ip -4 -br addr show "$INTERFAZ_AULA" 2>/dev/null | grep -q "$IP_AULA_SOLO"; then
+            r=$(dig +short +time=2 +tries=1 -b "$IP_AULA_SOLO" "@$IP_AULA_SOLO" "www.${DOMINIO:-huesca.local}" A | tail -1 || true)
+            [ "$r" = "$IP_AULA_SOLO" ] && bien "DNS vista aula www -> $r" \
+                || mal "DNS vista aula: esperaba $IP_AULA_SOLO y salió '$r'"
+        fi
+    fi
+
+    if command -v gns3server &>/dev/null; then
+        r=$(curl -fs "$GNS3_API/version" 2>/dev/null | python3 -c 'import sys,json; print(json.load(sys.stdin)["version"])' 2>/dev/null || true)
+        [ -n "$r" ] && bien "servidor GNS3 $r (puerto $GNS3_PUERTO)" || mal "servidor GNS3: no responde en el puerto $GNS3_PUERTO"
+        r=$(curl -s -o /dev/null -w '%{http_code}' -H "Host: gns3.${DOMINIO:-huesca.local}" http://localhost/v2/version || true)
+        [ "$r" = 200 ] && bien "gns3.${DOMINIO:-huesca.local} (Apache -> GNS3)" || mal "gns3.${DOMINIO:-huesca.local}: recibido $r"
+        if [ -n "${BRIDGE_INTERNA:-}" ] && ip link show "$BRIDGE_INTERNA" &>/dev/null; then
+            pid=$(gns3_id_proyecto)
+            r=$(gns3_nodos_parados "$pid")
+            [ "$r" = 0 ] && bien "proyecto GNS3: todos los nodos arrancados" || mal "proyecto GNS3: $r nodo(s) sin arrancar"
+        fi
+    else
+        echo "AVISO: GNS3 no está instalado (ejecuta: sudo ./instalar.sh gns3)"
+    fi
+
+    if [ -f web/probar.sh ]; then
+        bash web/probar.sh || FALLOS=1
+    fi
+
+    titulo "Estado de los contenedores:"
+    docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+
+    if [ "$FALLOS" -eq 0 ]; then echo "=== TODO BIEN TODO CORRECTO Y YO QUE ME ALEGRO ==="
+    else echo "=== HAY COMPROBACIONES FALLIDAS ==="; exit 1; fi
+}
+
+# ================================================================== QUÉ FASES SE EJECUTAN
+
+case "${1:-}" in
+    "")        comprobar; precargar_imagenes; red_automatica; sistema; dns; gns3; forgejo; web; verificar ;;
+    comprobar) comprobar ;;
+    red)       comprobar; red ;;
+    sistema)   comprobar; sistema ;;
+    dns)       comprobar; dns ;;
+    gns3)      comprobar; gns3 ;;
+    forgejo)   comprobar; forgejo ;;
+    web)       comprobar; web ;;
+    verificar) comprobar; verificar ;;
+    *)
+        echo "ERROR: no existe la fase '$1'"
+        echo "Fases: comprobar red sistema dns gns3 forgejo web verificar"
+        exit 1 ;;
+esac
