@@ -6,7 +6,7 @@
 #   sudo ./instalar.sh <fase>      solo una fase (comprobar va siempre delante)
 #
 # Se puede repetir sin romper nada: cada fase mira primero qué hay hecho.
-# (Excepción: la fase web recrea ldap y lam y BORRA sus volúmenes, como antes.)
+# (Los datos de OpenLDAP NO se borran al repetir. Para empezar LDAP de cero: sudo REINICIAR_LDAP=1 ./instalar.sh web)
 
 set -eo pipefail
 cd "$(dirname "$0")"
@@ -247,9 +247,9 @@ dns() {
     if [ -f generado/serial ] && [ "$SERIAL" -le "$(cat generado/serial)" ]; then SERIAL=$(( $(cat generado/serial) + 1 )); fi
     echo "$SERIAL" > generado/serial
 
-    export DOMINIO RED_INTERNA IP_INTERNA_SOLO IP_AULA_SOLO IP_DNS_SECUNDARIO ZONA_INVERSA PTR_SERVIDOR ACL_AULA SERIAL
+    export DOMINIO RED_INTERNA IP_INTERNA_SOLO IP_AULA_SOLO IP_DNS_SECUNDARIO ZONA_INVERSA PTR_SERVIDOR ACL_AULA SERIAL IPS_DNS_ACD
     # envsubst SOLO con esta lista, para no tocar los $TTL de las zonas
-    VARS='${DOMINIO} ${RED_INTERNA} ${IP_INTERNA_SOLO} ${IP_AULA_SOLO} ${IP_DNS_SECUNDARIO} ${ZONA_INVERSA} ${PTR_SERVIDOR} ${ACL_AULA} ${SERIAL}'
+    VARS='${DOMINIO} ${RED_INTERNA} ${IP_INTERNA_SOLO} ${IP_AULA_SOLO} ${IP_DNS_SECUNDARIO} ${ZONA_INVERSA} ${PTR_SERVIDOR} ${ACL_AULA} ${SERIAL} ${IPS_DNS_ACD}'
 
     cp dns/named.conf dns/named.conf.options generado/dns/
     envsubst "$VARS" < dns/named.conf.local.tpl   > generado/dns/named.conf.local
@@ -637,17 +637,20 @@ web() {
     forgejo_entorno
     esperar_imagenes                                  # las descargas en segundo plano ya deberían haber acabado
 
+    # Solo se borran los volúmenes de ldap/lam si se pide expresamente (REINICIAR_LDAP=1)
+    LDAP_VOL=""
+    if [ "${REINICIAR_LDAP:-0}" = 1 ]; then LDAP_VOL="-v"; echo "    REINICIAR_LDAP=1: se borran los datos de OpenLDAP y LAM"; fi
     if command -v docker compose &>/dev/null && docker compose version &>/dev/null; then
-        docker compose down ldap lam -v 2>/dev/null || true
+        docker compose down ldap lam $LDAP_VOL 2>/dev/null || true
     else
-        docker-compose down ldap lam -v 2>/dev/null || true
+        docker-compose down ldap lam $LDAP_VOL 2>/dev/null || true
     fi
     docker rm -f mi-apache mi-postgres forgejo 2>/dev/null || true
 
     if command -v docker compose &>/dev/null && docker compose version &>/dev/null; then
-        docker compose up -d --build --force-recreate web ldap lam
+        docker compose up -d --build --force-recreate web ldap lam panel
     else
-        docker-compose up -d --build --force-recreate web ldap lam
+        docker-compose up -d --build --force-recreate web ldap lam panel
     fi
 }
 
@@ -682,9 +685,9 @@ verificar() {
     fi
 
     # Contenedores
-    esperar_contenedores mi-bind9 mi-apache mi-postgres forgejo
+    esperar_contenedores mi-bind9 mi-apache mi-postgres forgejo panel
     sleep 2        # margen para detectar reinicios en bucle
-    for c in mi-bind9 mi-apache mi-postgres forgejo; do
+    for c in mi-bind9 mi-apache mi-postgres forgejo panel; do
         estado=$(docker inspect -f '{{.State.Running}} {{.RestartCount}}' "$c" 2>/dev/null || echo "no-existe")
         if [ "$estado" = "true 0" ]; then bien "contenedor $c"
         else mal "contenedor $c ($estado)"; docker logs --tail 15 "$c" 2>&1 || true; fi
@@ -733,6 +736,12 @@ verificar() {
         echo "AVISO: GNS3 no está instalado (ejecuta: sudo ./instalar.sh gns3)"
     fi
 
+    # Sincronización con Active Directory (solo si se ha instalado la fase ad)
+    if [ -f /etc/systemd/system/sincronizar-ad.timer ] && [ -f /etc/huesca/sync-ad.env ]; then
+        if systemctl is-active --quiet sincronizar-ad.timer; then bien "sincronización con AD: temporizador activo"
+        else mal "sincronización con AD: temporizador parado (sudo ./instalar.sh ad)"; fi
+    fi
+
     if [ -f web/probar.sh ]; then
         bash web/probar.sh || FALLOS=1
     fi
@@ -745,10 +754,15 @@ verificar() {
 }
 
 
+# ---------------------------------------------------------------- Active Directory (sincronización)
+# Fase "ad": deja el servidor listo para sincronizar OpenLDAP -> AD (el código está en scripts/ad.sh)
+if [ -f scripts/ad.sh ]; then source scripts/ad.sh; fi
+
+
 # ================================================================== QUÉ FASES SE EJECUTAN
 
 case "${1:-}" in
-    "")        comprobar; precargar_imagenes; red_automatica; sistema; dns; gns3; forgejo; web; verificar ;;
+    "")        comprobar; precargar_imagenes; red_automatica; sistema; dns; gns3; forgejo; web; ad_fase; verificar ;;
     comprobar) comprobar ;;
     red)       comprobar; red ;;
     sistema)   comprobar; sistema ;;
@@ -756,9 +770,10 @@ case "${1:-}" in
     gns3)      comprobar; gns3 ;;
     forgejo)   comprobar; forgejo ;;
     web)       comprobar; web ;;
+    ad)        comprobar; AD_ESTRICTO=1 ad_fase ;;
     verificar) comprobar; verificar ;;
     *)
         echo "ERROR: no existe la fase '$1'"
-        echo "Fases: comprobar red sistema dns gns3 forgejo web verificar"
+        echo "Fases: comprobar red sistema dns gns3 forgejo web ad verificar"
         exit 1 ;;
 esac

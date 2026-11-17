@@ -58,8 +58,7 @@ Escribe cada valor justo después del `=`, sin espacios ni comentarios en la mis
 Guarda con `Ctrl+O`, `Enter` y sal con `Ctrl+X`.
 
 > **Las contraseñas de la base y de LDAP solo se aplican al crearlas.** Si cambias una en `.env` después de instalar,
-> los datos existentes siguen con la antigua. Para empezar de cero: `sudo ./instalar.sh reiniciar bd --si` o
-> `sudo ./instalar.sh reiniciar ldap --si` (**borran** esos datos).
+> los datos existentes siguen con la antigua. Para empezar de cero: `sudo REINICIAR_LDAP=1 ./instalar.sh web` (borra y recrea los datos de LDAP).
 
 > **Si es otra sede:** revisa también `sede.env` (interfaz y IP del aula, puerta de enlace, resolutor, red interna, dominio).
 > Es el único sitio donde aparecen esos datos y **sí va a Git** (no tiene secretos); el resto de ficheros los toma de ahí.
@@ -84,12 +83,15 @@ Lanza todas las fases una detrás de otra. Tarda unos minutos y **no pide nada**
 | `gns3` | Instala el servidor GNS3, construye la imagen del DNS secundario (con la clave TSIG) e importa y arranca el proyecto de la red interna. |
 | `forgejo` | Prepara Forgejo y su SSH. Si existe `restauracion/forgejo-dump.zip`, restaura los datos de otro Forgejo. |
 | `web` | Genera `secretos/intranet.htpasswd` desde `.env` y levanta `mi-apache`, `mi-postgres`, `forgejo`, `ldap` y `lam`. |
+| `ad` | Sincroniza OpenLDAP → Active Directory: confía en la CA de AD, instala los scripts de `sincronizacion/` y su temporizador, genera `/etc/huesca/`, comprueba LDAPS y `svc-sync`, y hace la primera sincronización. Antes hay que hacer a mano la parte de Windows (ver abajo). En la ejecución completa solo avisa si Windows no está listo; sola (`sudo ./instalar.sh ad`) marca FALLO. |
 | `sssd` | Hace que este servidor autentique a los usuarios contra OpenLDAP. |
 | `verificar` | Prueba red, contenedores, permisos de la base, SSH de Forgejo, DNS (incluido TSIG y recursión del aula), GNS3 y las pruebas HTTP de `web/probar.sh`. |
 | `reiniciar ldap\|bd --si` | **Solo a mano.** Borra los datos de LDAP o de la base y los crea de nuevo. Sin `--si` no hace nada. |
 
 Una fase suelta se puede lanzar sola: `sudo ./instalar.sh <fase>` (por ejemplo `sudo ./instalar.sh dns`).
-El código de las fases largas está en `scripts/` (`gns3.sh`, `forgejo.sh`, `sssd.sh`).
+El código de las fases largas está en `scripts/` (`gns3.sh`, `forgejo.sh`, `sssd.sh`, `ad.sh`).
+
+**Active Directory (fase `ad`).** OpenLDAP es el directorio principal y Windows Server recibe sus cuentas. La fase `ad` hace todo lo del servidor Linux, pero antes hay que hacer en dc1 (docs/ad-windows.md): crear `svc-sync`, delegarle las OU Investigadores y Visitas y escribir pertenencia en GG-Investigadores y GG-Visitas, instalar la entidad de certificación, y exportar su certificado a `sincronizacion/huesca-ad-ca.cer`. Después se rellena `AD_SYNC_PASSWORD` en `.env` y se lanza `sudo ./instalar.sh ad`. Las cuentas nuevas nacen deshabilitadas en AD hasta fijar su contraseña (`AD_CLAVE_INICIAL` o `sudo cambiar-clave.sh <usuario>`).
 
 **Qué se debe ver al terminar:** líneas `OK ...` para cada comprobación y, al final, `=== TODO CORRECTO ===`.
 Si algo falla aparece `FALLO ...` con el motivo y el script termina con `=== HAY COMPROBACIONES FALLIDAS ===`.
