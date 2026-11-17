@@ -1,0 +1,16 @@
+:root { --fondo: #f6f7f9; --tinta: #1d2733; --suave: #5d6b7a; --marca: #0b5c8a; --error: #b3261e; }
+* { box-sizing: border-box; }
+body { margin: 0; font: 16px/1.5 system-ui, sans-serif; background: var(--fondo); color: var(--tinta); }
+header { display: flex; flex-wrap: wrap; gap: 1rem; align-items: center; padding: .75rem 1rem; background: var(--marca); color: #fff; }
+header a { color: #fff; margin-right: .75rem; }
+header .quien { margin-left: auto; font-size: .9rem; }
+main { max-width: 60rem; margin: 0 auto; padding: 1rem; }
+table { width: 100%; border-collapse: collapse; background: #fff; }
+th, td { padding: .4rem .6rem; border-bottom: 1px solid #dde2e8; text-align: left; }
+td.num { text-align: right; font-variant-numeric: tabular-nums; }
+.tarjeta { display: grid; gap: .6rem; max-width: 28rem; padding: 1rem; background: #fff; border: 1px solid #dde2e8; }
+.tarjeta label { display: grid; gap: .2rem; }
+input, select, button { font: inherit; padding: .4rem; }
+button { background: var(--marca); color: #fff; border: 0; cursor: pointer; }
+.en-linea { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
+.error { color: var(--error); }

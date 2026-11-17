@@ -1,0 +1,20 @@
+[
+  {
+    "codigo": "BIO-0001",
+    "titulo": "Plegamiento de proteínas de membrana",
+    "responsable": "marta",
+    "tarifa": "academica",
+    "miembros": [
+      "ana"
+    ]
+  },
+  {
+    "codigo": "FIS-0002",
+    "titulo": "Simulación de materiales para baterías",
+    "responsable": "jorge",
+    "tarifa": "empresa",
+    "miembros": [
+      "luis"
+    ]
+  }
+]

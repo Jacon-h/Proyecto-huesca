@@ -1,0 +1,32 @@
+[
+  {
+    "usuario": "ana",
+    "nombre": "Ana Lorente",
+    "perfil": "investigador",
+    "hash": "$2y$10$46h.P91DIGOFh6zwFu9REeuZvuU1HrV3rGwoc9q0ttAj10p0MO3WO"
+  },
+  {
+    "usuario": "luis",
+    "nombre": "Luis Sanz",
+    "perfil": "investigador",
+    "hash": "$2y$10$B7Szkbq7EED7x14tCw/92eGjTgaoQJKDIw8J4Rl314BYsWVEkdXze"
+  },
+  {
+    "usuario": "marta",
+    "nombre": "Marta Gil",
+    "perfil": "responsable",
+    "hash": "$2y$10$EcM9YJsNjpxTgd34Bud4XeNh0X6rnYeLvNjvYORMRWIKAMG833w1y"
+  },
+  {
+    "usuario": "jorge",
+    "nombre": "Jorge Pina",
+    "perfil": "responsable",
+    "hash": "$2y$10$cRgH9QpSi5.jYXePKghjFu0VQSmZ4hk/l6mm4o0yjlAaOJtCjscNm"
+  },
+  {
+    "usuario": "cesar",
+    "nombre": "Administración CESAR",
+    "perfil": "cesar",
+    "hash": "$2y$10$o8WiAxl4gEthdaWtldcO7uJxq0ZSWJ1Wt1PZw3v0Qp/FAUH.cco6W"
+  }
+]
