@@ -23,3 +23,4 @@ gns3     IN CNAME servidor
 
 ldap     IN CNAME servidor
 lam      IN CNAME servidor
+panel    IN CNAME servidor

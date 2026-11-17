@@ -652,6 +652,18 @@ web() {
     else
         docker-compose up -d --build --force-recreate web ldap lam panel
     fi
+
+    # Usuario de solo lectura para clientes externos de PostgreSQL (ASGBD). El script es idempotente:
+    # initdb lo ejecuta al crear la base y aquí se repite para que también valga si la base ya existía.
+    if [ -f db/04_roles_externos.sql ]; then
+        esperar_contenedores mi-postgres
+        if docker exec -i mi-postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 -q' \
+                < db/04_roles_externos.sql >/dev/null 2>&1; then
+            echo "    PostgreSQL: usuario de solo lectura para clientes externos listo (resp_demo)"
+        else
+            echo "    AVISO: no se pudo aplicar db/04_roles_externos.sql (revisa: docker logs mi-postgres)"
+        fi
+    fi
 }
 
 
@@ -758,6 +770,35 @@ verificar() {
 # Fase "ad": deja el servidor listo para sincronizar OpenLDAP -> AD (el código está en scripts/ad.sh)
 if [ -f scripts/ad.sh ]; then source scripts/ad.sh; fi
 
+# ---------------------------------------------------------------- SSSD (solo a mano)
+# Fase "sssd": este servidor autentica contra OpenLDAP. No entra en la instalación completa porque
+# cambia PAM/NSS del propio servidor: se lanza a propósito con  sudo ./instalar.sh sssd
+if [ -f scripts/sssd.sh ]; then source scripts/sssd.sh; fi
+
+# ---------------------------------------------------------------- Reiniciar datos (solo a mano)
+#   sudo ./instalar.sh reiniciar ldap --si    borra y recrea los datos de OpenLDAP y LAM
+#   sudo ./instalar.sh reiniciar bd --si      borra y recrea la base de PostgreSQL (20 filas iniciales)
+# Sin --si no hace nada. No toca Forgejo ni la otra base de datos.
+reiniciar() {
+    local que="${1:-}" conf="${2:-}"
+    case "$que" in
+        ldap|bd) ;;
+        *) echo "Uso: sudo ./instalar.sh reiniciar ldap|bd --si"; exit 1 ;;
+    esac
+    if [ "$conf" != "--si" ]; then
+        echo "Esto BORRA los datos de $que. Si estás seguro, repite con --si:  sudo ./instalar.sh reiniciar $que --si"
+        exit 1
+    fi
+    if [ "$que" = ldap ]; then
+        REINICIAR_LDAP=1 web
+    else
+        docker rm -f mi-postgres 2>/dev/null || true
+        local v
+        for v in $(docker volume ls -q | grep -E '(^|_)datos$' || true); do docker volume rm "$v" >/dev/null && echo "    Volumen $v borrado"; done
+        web
+    fi
+}
+
 
 # ================================================================== QUÉ FASES SE EJECUTAN
 
@@ -771,9 +812,11 @@ case "${1:-}" in
     forgejo)   comprobar; forgejo ;;
     web)       comprobar; web ;;
     ad)        comprobar; AD_ESTRICTO=1 ad_fase ;;
+    sssd)      comprobar; sssd_cliente ;;
+    reiniciar) comprobar; reiniciar "${2:-}" "${3:-}" ;;
     verificar) comprobar; verificar ;;
     *)
         echo "ERROR: no existe la fase '$1'"
-        echo "Fases: comprobar red sistema dns gns3 forgejo web ad verificar"
+        echo "Fases: comprobar red sistema dns gns3 forgejo web ad sssd verificar  (y: reiniciar ldap|bd --si)"
         exit 1 ;;
 esac

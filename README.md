@@ -22,7 +22,7 @@ docker compose ps                                     # y comprueba que está en
 | 1 · `git clone ...` | Descarga la rama `despliegue` en la carpeta `sede` y entra en ella. `<url>` es la del repositorio. |
 | 2 · `cp .env.example .env && nano .env` | Copia la plantilla de contraseñas y la abre para rellenarla (`.env` no va a Git). |
 | 3 · `sudo ./instalar.sh` | Instala y arranca todo, sin pedir nada. Es seguro repetirlo. |
-| `docker compose ps` | Muestra los seis servicios; deben estar en `running`. |
+| `docker compose ps` | Muestra los siete servicios; deben estar en `running`. |
 
 ### 1. Descargar el proyecto
 
@@ -82,7 +82,7 @@ Lanza todas las fases una detrás de otra. Tarda unos minutos y **no pide nada**
 | `dns` | Genera las zonas desde `dns/*.tpl` y `sede.env`, crea la clave TSIG (una sola vez), valida todo y levanta `mi-bind9` con dos vistas (interna y aula). |
 | `gns3` | Instala el servidor GNS3, construye la imagen del DNS secundario (con la clave TSIG) e importa y arranca el proyecto de la red interna. |
 | `forgejo` | Prepara Forgejo y su SSH. Si existe `restauracion/forgejo-dump.zip`, restaura los datos de otro Forgejo. |
-| `web` | Genera `secretos/intranet.htpasswd` desde `.env` y levanta `mi-apache`, `mi-postgres`, `forgejo`, `ldap` y `lam`. |
+| `web` | Genera `secretos/intranet.htpasswd` desde `.env` y levanta `mi-apache`, `mi-postgres`, `forgejo`, `ldap`, `lam` y `panel`. Aplica `db/04_roles_externos.sql` (usuario `resp_demo`, repetible). No borra datos de LDAP salvo con `REINICIAR_LDAP=1`. |
 | `ad` | Sincroniza OpenLDAP → Active Directory: confía en la CA de AD, instala los scripts de `sincronizacion/` y su temporizador, genera `/etc/huesca/`, comprueba LDAPS y `svc-sync`, y hace la primera sincronización. Antes hay que hacer a mano la parte de Windows (ver abajo). En la ejecución completa solo avisa si Windows no está listo; sola (`sudo ./instalar.sh ad`) marca FALLO. |
 | `sssd` | Hace que este servidor autentique a los usuarios contra OpenLDAP. |
 | `verificar` | Prueba red, contenedores, permisos de la base, SSH de Forgejo, DNS (incluido TSIG y recursión del aula), GNS3 y las pruebas HTTP de `web/probar.sh`. |
@@ -93,6 +93,8 @@ El código de las fases largas está en `scripts/` (`gns3.sh`, `forgejo.sh`, `ss
 
 **Active Directory (fase `ad`).** OpenLDAP es el directorio principal y Windows Server recibe sus cuentas. La fase `ad` hace todo lo del servidor Linux, pero antes hay que hacer en dc1 (docs/ad-windows.md): crear `svc-sync`, delegarle las OU Investigadores y Visitas y escribir pertenencia en GG-Investigadores y GG-Visitas, instalar la entidad de certificación, y exportar su certificado a `sincronizacion/huesca-ad-ca.cer`. Después se rellena `AD_SYNC_PASSWORD` en `.env` y se lanza `sudo ./instalar.sh ad`. Las cuentas nuevas nacen deshabilitadas en AD hasta fijar su contraseña (`AD_CLAVE_INICIAL` o `sudo cambiar-clave.sh <usuario>`).
 
+**Acceso externo a PostgreSQL (ASGBD).** El puerto 5432 está publicado para clientes de fuera del servidor. `db/conf/pg_hba.conf` solo deja entrar desde internet al usuario `resp_demo` (solo lectura, contraseña en `db/04_roles_externos.sql`: es de demostración, cámbiala si la base se usa de verdad); los demás usuarios solo entran desde redes Docker. Prueba: `psql -h <IP_AULA> -U resp_demo -d <DB_NAME>`.
+
 **Qué se debe ver al terminar:** líneas `OK ...` para cada comprobación y, al final, `=== TODO CORRECTO ===`.
 Si algo falla aparece `FALLO ...` con el motivo y el script termina con `=== HAY COMPROBACIONES FALLIDAS ===`.
 
@@ -102,16 +104,17 @@ Si algo falla aparece `FALLO ...` con el motivo y el script termina con `=== HAY
 docker compose ps
 ```
 
-Deben aparecer los seis servicios en estado `running` (`healthy` en la base de datos):
+Deben aparecer los siete servicios en estado `running` (`healthy` en la base de datos):
 
 | Servicio | Contenedor | Puerto |
 |---|---|---|
 | `web` | `mi-apache` | 80 |
-| `db` | `mi-postgres` | solo red interna de Docker |
+| `db` | `mi-postgres` | 5432 (clientes externos: solo `resp_demo`, de solo lectura; ver abajo) |
 | `git` | `forgejo` | 3000 (web) y 2222 (SSH) |
 | `dns` | `mi-bind9` | 53 (red del servidor) |
 | `ldap` | `ldap` | 389 y 636 |
 | `lam` | `lam` | 8080 |
+| `panel` | `panel` | 8081 (y `panel.huesca.empresa.lan` por Apache) |
 
 Si alguno no está en `running`: `docker logs <contenedor>` muestra el motivo y `sudo ./instalar.sh verificar` repite las pruebas.
 La lista completa de pruebas, con la salida esperada y qué mirar si fallan, está en [`docs/comprobaciones.md`](docs/comprobaciones.md).
@@ -128,6 +131,7 @@ Los nombres los resuelve el DNS de la sede (apunta tu equipo a la IP del servido
 | GNS3 | `http://gns3.huesca.empresa.lan` | libre dentro de la sede |
 | Estado de la web | `http://www.huesca.empresa.lan/estado.php` | libre; muestra si la base responde y cuántas filas tiene |
 | LAM (gestión de usuarios LDAP) | `http://<IP_AULA>:8080` | contraseña `LAM_PASSWORD` |
+| Panel del BIFI (Reto 1) | `http://panel.huesca.empresa.lan` (o `http://<IP_AULA>:8081`) | libre dentro de la sede |
 
 Sin DNS configurado se puede probar con `curl -H "Host: www.huesca.empresa.lan" http://localhost/`.
 
