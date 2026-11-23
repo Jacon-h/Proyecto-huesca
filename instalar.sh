@@ -119,10 +119,15 @@ comprobar() {
         fi
     fi
     set -a; source .env; set +a
-    for v in DB_NAME DB_USER DB_PASSWORD POSTGRES_PASSWORD INTRANET_USUARIO INTRANET_CLAVE LDAP_ADMIN_PASSWORD LDAP_CONFIG_PASSWORD LAM_PASSWORD; do
+    for v in DB_NAME DB_USER DB_PASSWORD POSTGRES_PASSWORD BIFI_PANEL_PASSWORD BIFI_RESP_PASSWORD \
+             INTRANET_USUARIO INTRANET_CLAVE LDAP_ADMIN_PASSWORD LDAP_CONFIG_PASSWORD LAM_PASSWORD; do
         [ -n "${!v:-}" ] || { echo "ERROR: falta $v en .env"; exit 1; }
     done
     [ "$DB_USER" != postgres ] || { echo "ERROR: DB_USER no puede ser 'postgres' (es el administrador)"; exit 1; }
+    case "$DB_USER" in
+        panel|resp_demo) echo "ERROR: DB_USER no puede ser '$DB_USER' (es un usuario de la base bifi)"; exit 1 ;;
+    esac
+    [ "$DB_NAME" != bifi ] || { echo "ERROR: DB_NAME no puede ser 'bifi' (bifi la crea db/04_bifi.sh con colación española)"; exit 1; }
     if ! docker compose version >/dev/null 2>&1 && ! docker-compose version >/dev/null 2>&1; then
         echo "ERROR: falta el plugin docker compose"; exit 1;
     fi
@@ -645,13 +650,54 @@ web() {
     else
         docker-compose down ldap lam $LDAP_VOL 2>/dev/null || true
     fi
-    docker rm -f mi-apache mi-postgres forgejo 2>/dev/null || true
+    # Restos de despliegues anteriores con los mismos nombres. Primero "docker stop", que respeta el
+    # stop_grace_period de compose.yaml (PostgreSQL para limpio); "docker rm -f" los mataría con SIGKILL.
+    docker stop mi-apache mi-postgres forgejo >/dev/null 2>&1 || true
+    docker rm mi-apache mi-postgres forgejo >/dev/null 2>&1 || true
 
     if command -v docker compose &>/dev/null && docker compose version &>/dev/null; then
-        docker compose up -d --build --force-recreate web ldap lam panel
+        docker compose up -d --build --force-recreate web db ldap lam panel
     else
-        docker-compose up -d --build --force-recreate web ldap lam panel
+        docker-compose up -d --build --force-recreate web db ldap lam panel
     fi
+
+    bd_bifi
+}
+
+
+# ---------------------------------------------------------------- Base bifi (ASGBD RA2)
+
+# Espera hasta 90 s a que PostgreSQL acepte conexiones TCP dentro del contenedor (el servidor
+# temporal que usa la imagen para inicializar la base solo escucha por socket: así no se confunde).
+esperar_bd() {
+    for _ in $(seq 1 90); do
+        docker exec mi-postgres pg_isready -q -h 127.0.0.1 2>/dev/null && return 0
+        sleep 1
+    done
+    return 1
+}
+
+bd_bifi() {
+    titulo "Base bifi: usuarios, límites y cliente psql (ASGBD RA2)"
+    esperar_bd || { echo "ERROR: PostgreSQL no responde (mira: docker logs mi-postgres)"; exit 1; }
+
+    # 1. db/04_bifi.sh ya se ejecutó al crear el volumen; se repite para que valga también con una base
+    #    que ya existía y para aplicar contraseñas nuevas de .env. Es idempotente.
+    if ! docker exec -u postgres mi-postgres bash /docker-entrypoint-initdb.d/04_bifi.sh >/dev/null; then
+        echo "ERROR: falló db/04_bifi.sh (el motivo está justo encima)"; exit 1
+    fi
+    echo "    bifi: base en UTF-8/es_ES, usuarios panel y resp_demo con límites (db/04_bifi.sh)"
+
+    # 2. Cliente psql en el servidor y  psql service=bifi  para quien ha lanzado sudo (P8).
+    #    ~/.pg_service.conf y ~/.pgpass quedan en SU carpeta personal, en modo 600, fuera del repositorio.
+    if ! command -v psql &>/dev/null; then
+        asegurar_dns
+        apt-get install -y postgresql-client >/dev/null
+    fi
+    local usuario="${SUDO_USER:-root}"
+    printf '%s\n' "$BIFI_RESP_PASSWORD" \
+        | sudo -H -u "$usuario" bash db/cliente/configurar-cliente.sh "$IP_AULA_SOLO" >/dev/null
+    echo "    psql service=bifi listo para $usuario (~/.pg_service.conf y ~/.pgpass en 600)"
 }
 
 
@@ -693,8 +739,9 @@ verificar() {
         else mal "contenedor $c ($estado)"; docker logs --tail 15 "$c" 2>&1 || true; fi
     done
 
-    # Base de datos: el usuario de la web puede leer pero NO borrar
-    r=$(docker exec mi-postgres psql -U "${DB_USER:-web}" -d "${DB_NAME:-huesca}" -c "DELETE FROM inventario WHERE false" 2>&1 || true)
+    # Base de datos: el usuario de la web puede leer pero NO borrar (por socket, con su contraseña)
+    r=$(docker exec -e PGPASSWORD="$DB_PASSWORD" mi-postgres \
+        psql -U "$DB_USER" -d "$DB_NAME" -c "DELETE FROM inventario WHERE false" 2>&1 || true)
     if echo "$r" | grep -q "permission denied"; then bien "usuario ${DB_USER:-web} sin permiso de borrado"
     else mal "usuario ${DB_USER:-web}: no tiene el permiso esperado (¿existe el rol? $r)"; fi
 
@@ -746,6 +793,11 @@ verificar() {
         bash web/probar.sh || FALLOS=1
     fi
 
+    # ASGBD RA2: P1, P2, P4-P8 y qué IP ve el gestor (la prueba de parada va aparte: db/probar.sh parada)
+    if [ -f db/probar.sh ]; then
+        bash db/probar.sh || FALLOS=1
+    fi
+
     titulo "Estado de los contenedores:"
     docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
 
@@ -757,6 +809,36 @@ verificar() {
 # ---------------------------------------------------------------- Active Directory (sincronización)
 # Fase "ad": deja el servidor listo para sincronizar OpenLDAP -> AD (el código está en scripts/ad.sh)
 if [ -f scripts/ad.sh ]; then source scripts/ad.sh; fi
+
+# ---------------------------------------------------------------- SSSD (solo a mano)
+# Fase "sssd": este servidor autentica contra OpenLDAP. No entra en la instalación completa porque
+# cambia PAM/NSS del propio servidor: se lanza a propósito con  sudo ./instalar.sh sssd
+if [ -f scripts/sssd.sh ]; then source scripts/sssd.sh; fi
+
+# ---------------------------------------------------------------- Reiniciar datos (solo a mano)
+#   sudo ./instalar.sh reiniciar ldap --si    borra y recrea los datos de OpenLDAP y LAM
+#   sudo ./instalar.sh reiniciar bd --si      borra y recrea la base de PostgreSQL (20 filas iniciales)
+# Sin --si no hace nada. No toca Forgejo ni la otra base de datos.
+reiniciar() {
+    local que="${1:-}" conf="${2:-}"
+    case "$que" in
+        ldap|bd) ;;
+        *) echo "Uso: sudo ./instalar.sh reiniciar ldap|bd --si"; exit 1 ;;
+    esac
+    if [ "$conf" != "--si" ]; then
+        echo "Esto BORRA los datos de $que. Si estás seguro, repite con --si:  sudo ./instalar.sh reiniciar $que --si"
+        exit 1
+    fi
+    if [ "$que" = ldap ]; then
+        REINICIAR_LDAP=1 web
+    else
+        docker stop mi-postgres >/dev/null 2>&1 || true
+        docker rm mi-postgres >/dev/null 2>&1 || true
+        local v
+        for v in $(docker volume ls -q | grep -E '(^|_)datos$' || true); do docker volume rm "$v" >/dev/null && echo "    Volumen $v borrado"; done
+        web
+    fi
+}
 
 
 # ================================================================== QUÉ FASES SE EJECUTAN
@@ -770,10 +852,13 @@ case "${1:-}" in
     gns3)      comprobar; gns3 ;;
     forgejo)   comprobar; forgejo ;;
     web)       comprobar; web ;;
+    bd)        comprobar; bd_bifi ;;
     ad)        comprobar; AD_ESTRICTO=1 ad_fase ;;
+    sssd)      comprobar; sssd_cliente ;;
+    reiniciar) comprobar; reiniciar "${2:-}" "${3:-}" ;;
     verificar) comprobar; verificar ;;
     *)
         echo "ERROR: no existe la fase '$1'"
-        echo "Fases: comprobar red sistema dns gns3 forgejo web ad verificar"
+        echo "Fases: comprobar red sistema dns gns3 forgejo web bd ad sssd verificar  (y: reiniciar ldap|bd --si)"
         exit 1 ;;
 esac

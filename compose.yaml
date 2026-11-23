@@ -5,7 +5,7 @@
 # Ajustes que comparten todos los servicios (se reutilizan con "<<: *comun")
 x-comun: &comun
   restart: unless-stopped
-  logging:                          # sin esto los logs crecen sin límite y llenan el disco de la VM
+  logging:                         # sin esto los logs crecen sin límite y llenan el disco de la VM
     driver: json-file
     options:
       max-size: "10m"
@@ -36,26 +36,44 @@ services:
         condition: service_healthy
       git:
         condition: service_started
+      panel:                        # Apache hace de proxy de panel.<dominio>
+        condition: service_started
 
   # ============================================================ db · ASGBD
   db:
     <<: *comun
-    image: postgres:16
+    build: ./db                     # postgres:16 + locale es_ES.UTF-8 (db/Dockerfile), para bifi (P7)
     container_name: mi-postgres
+    ports:
+      - "5432:5432"                 # clientes de fuera (el responsable desde el aula). Quién entra: db/conf/pg_hba.conf
     environment:
-      # Administrador de la base: dueño de las tablas, NO lo usa la web
+      # Administrador de la base: dueño de las tablas, NO lo usa la web y NO entra por red (P2)
       POSTGRES_DB: ${DB_NAME:?falta DB_NAME en .env}
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?falta POSTGRES_PASSWORD en .env}
       # Usuario de la web (lo crea db/03_usuario_web.sh: leer, insertar y editar, pero no borrar)
       DB_USER: ${DB_USER:?falta DB_USER en .env}
       DB_PASSWORD: ${DB_PASSWORD:?falta DB_PASSWORD en .env}
+      # Usuarios de la base bifi (los crea db/04_bifi.sh)
+      BIFI_PANEL_PASSWORD: ${BIFI_PANEL_PASSWORD:?falta BIFI_PANEL_PASSWORD en .env}
+      BIFI_RESP_PASSWORD: ${BIFI_RESP_PASSWORD:?falta BIFI_RESP_PASSWORD en .env}
     volumes:
       - datos:/var/lib/postgresql/data
       - ./db:/docker-entrypoint-initdb.d:ro
-    networks: [trasera]
+      - ./db/conf/pg_hba.conf:/etc/postgresql/pg_hba.conf:ro
+      - ./db/conf/postgresql.conf:/etc/postgresql/postgresql.conf:ro
+    # Toda la configuración sale de db/conf/ (postgresql.conf apunta a su vez a pg_hba.conf)
+    command: postgres -c config_file=/etc/postgresql/postgresql.conf
+    # Al parar, Docker manda SIGINT (parada rápida: PostgreSQL cierra sesiones y hace un checkpoint).
+    # Si no termina en este tiempo, Docker lo mata con SIGKILL y el siguiente arranque necesita
+    # recuperación. Por defecto son 10 s; se dan 60 s de margen (ver db/README.md, "stop_grace_period").
+    stop_grace_period: 60s
+    # frontal es necesaria para publicar el 5432: en una red "internal" (trasera) Docker NO publica los puertos.
+    networks: [frontal, trasera]
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      # -h 127.0.0.1: pregunta por TCP. Mientras la imagen inicializa la base, el servidor temporal solo
+      # escucha por socket; así el contenedor no se da por "healthy" hasta que el servidor de verdad está listo.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
       retries: 10
       start_period: 10s
@@ -144,10 +162,30 @@ services:
       ldap:
         condition: service_healthy
 
+  # ============================================================ panel · IAW (reto 1)
+  panel:
+    <<: *comun
+    build: ./panel
+    container_name: panel
+    ports:
+      - "8081:80"                   # para probar sin el proxy de la sede
+    volumes:
+      - datos-panel:/var/www/panel/datos
+    environment:                    # conexión a bifi (P1). La lee panel/comun/bd.php con getenv()
+      BIFI_HOST: db
+      BIFI_DB: bifi
+      BIFI_USER: panel
+      BIFI_PASSWORD: ${BIFI_PANEL_PASSWORD:?falta BIFI_PANEL_PASSWORD en .env}
+    networks: [frontal, trasera]    # frontal para publicar el puerto; trasera para llegar a db
+    depends_on:
+      db:
+        condition: service_healthy
+
 volumes:
   datos:
   datos_ldap_db:
   datos_ldap_config:
+  datos-panel:
 
 networks:
   frontal:

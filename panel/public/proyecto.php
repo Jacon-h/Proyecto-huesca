@@ -14,9 +14,12 @@ if ($p === null || !puede_ver($u, $p)) {
 // Añadir o quitar investigadores: solo su responsable o el CESAR.
 $error = '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    // (A8b, A8c) La autorización se comprueba aquí, en el servidor. Ocultar los botones no basta:
+    // un POST hecho a mano (curl, DevTools) llega igual.
     if (!puede_gestionar($u, $p)) {
         pagina_error(403, 'Solo el responsable del proyecto o el CESAR cambian sus miembros.');
     }
+    exigir_csrf();
     $error = gestionar_miembros($p, $_POST);
     if ($error === '') {
         redirigir('proyecto.php?codigo=' . urlencode($p['codigo']));  // PRG: recargar no repite el cambio
@@ -40,7 +43,7 @@ cabecera($p['codigo'] . ' · ' . $p['titulo'], $u);
   <?php foreach ($p['miembros'] as $m): ?>
   <li><?= e(nombre_de($m)) ?>
     <?php if (puede_gestionar($u, $p)): ?>
-    <form method="post" class="en-linea"><input type="hidden" name="accion" value="quitar">
+    <form method="post" class="en-linea"><?= campo_csrf() ?><input type="hidden" name="accion" value="quitar">
       <input type="hidden" name="investigador" value="<?= e($m) ?>"><button>Quitar</button></form>
     <?php endif ?>
   </li>
@@ -49,6 +52,7 @@ cabecera($p['codigo'] . ' · ' . $p['titulo'], $u);
 
 <?php if (puede_gestionar($u, $p)): ?>
 <form method="post" class="en-linea">
+  <?= campo_csrf() ?>
   <input type="hidden" name="accion" value="anadir">
   <?php if ($error !== ''): ?><p class="error"><?= e($error) ?></p><?php endif ?>
   <select name="investigador">

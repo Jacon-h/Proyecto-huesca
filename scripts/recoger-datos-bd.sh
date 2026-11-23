@@ -7,7 +7,7 @@ cd "$(dirname "$0")/.."
 set -a; source .env; set +a
 OUT=evidencias/datos-bd.txt; mkdir -p evidencias; : > "$OUT"
 c() { { echo; echo "\$ $*"; } | tee -a "$OUT"; bash -c "$*" 2>&1 | tee -a "$OUT"; }
-PSQL="docker exec mi-postgres psql -U postgres -d $DB_NAME"
+PSQL="docker exec -u postgres mi-postgres psql -U postgres -d $DB_NAME"
 
 { echo "Datos de la base · $(date '+%F %T') · $(hostname)"; } | tee -a "$OUT"
 c "docker compose ps"
@@ -22,7 +22,7 @@ c "$PSQL -c '\\du'"
 c "$PSQL -c '\\dp inventario'"
 c "$PSQL -c 'SELECT count(*) FROM inventario;'"
 c "$PSQL -c \"SELECT name, setting FROM pg_settings WHERE name IN ('listen_addresses','port','max_connections','shared_buffers','password_encryption','log_connections','log_disconnections','log_line_prefix','data_directory','hba_file') ORDER BY 1;\""
-c "docker exec mi-postgres sh -c \"grep -v '^#' /var/lib/postgresql/data/pg_hba.conf | grep -v '^\$'\""
+c "docker exec mi-postgres sh -c \"grep -v '^#' /etc/postgresql/pg_hba.conf | grep -v '^\$'\""
 c "docker exec mi-postgres ls -la /var/lib/postgresql/data"
 c "docker exec mi-postgres sh -c 'ls /docker-entrypoint-initdb.d'"
 c "docker logs --tail 15 mi-postgres"

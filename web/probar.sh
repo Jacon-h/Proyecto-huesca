@@ -25,6 +25,10 @@ probar "3. Intranet con clave"   200 -u "$INTRANET_USUARIO:$INTRANET_CLAVE" -H "
 probar "4. Recurso inexistente"  404 -H "$WWW"   http://localhost/noexiste
 probar "5. Git (proxy a Forgejo)" 200 -H "$GIT"   http://localhost/api/healthz
 
+PANEL="Host: panel.huesca.empresa.lan"
+probar "5b. Panel sin sesión -> login (proxy a panel)" 302 -H "$PANEL" http://localhost/index.php
+probar "5c. Panel: página de login"                     200 -H "$PANEL" http://localhost/login.php
+
 probar "6. Página de estado"     200 -H "$WWW"   http://localhost/estado.php
 if curl -s -H "$WWW" http://localhost/estado.php | grep -Eq '^Filas en inventario: [0-9]+$'; then
     echo "OK    7. estado.php muestra el número de filas"

@@ -28,12 +28,16 @@ function cabecera(string $titulo, ?array $u = null): void
     <?php
 }
 
-/** (RA5 g). El menú cambia según el perfil: «Nuevo proyecto», solo el CESAR. */
+/**
+ * (A5) El menú cambia según el perfil que hay en la sesión: «Nuevo proyecto» y «Estado de la base»,
+ * solo el CESAR. Ocultar un enlace no protege nada: cada página comprueba el perfil (exigir_perfil).
+ */
 function menu(array $u): string
 {
     $enlaces = ['index.php' => 'Proyectos'];
     if ($u['perfil'] === 'cesar') {
         $enlaces['proyecto-nuevo.php'] = 'Nuevo proyecto';
+        $enlaces['estado-bd.php'] = 'Estado de la base';
     }
     $enlaces['logout.php'] = 'Salir';
 

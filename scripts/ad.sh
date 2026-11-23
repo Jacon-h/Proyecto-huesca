@@ -86,7 +86,7 @@ ad_fase() {
     rm -f "$tmp"
 
     # ---- 4. Scripts, unidades y configuración (se instalan siempre; así se pueden repetir sin Windows listo)
-    install -m 755 "$AD_ORIGEN/sincronizar-ad.sh" "$AD_ORIGEN/cambiar-clave.sh" "$AD_BIN/"
+    install -m 755 "$AD_ORIGEN/sincronizar-ad.sh" "$AD_ORIGEN/cambiar-clave.sh" "$AD_ORIGEN/alta-investigador.sh" "$AD_BIN/"
     install -m 644 "$AD_ORIGEN/sincronizar-ad.service" "$AD_ORIGEN/sincronizar-ad.timer" "$AD_UNIDADES/"
     systemctl daemon-reload 2>/dev/null || true
     install -d -m 700 "$AD_ETC"

@@ -167,3 +167,217 @@ También se revisaron los apartados de investigación realizados durante el proy
 Finalización de la investigación de base de datos.
 
 Finalmente, dejamos identificadas las tareas pendientes relacionadas con Forgejo, las claves SSH individuales, la topología de GNS3, la política de contraseñas, las restauraciones sobre volúmenes nuevos y las confirmaciones y pull requests de los miembros del equipo.
+
+
+## 07/10/2026
+
+Empezamos la fase de cierre de la parte web. Lanzamos `web/probar.sh` y repasamos que `www.huesca.empresa.lan` responde 200 sin credenciales, que la intranet devuelve 401 sin usuario y 200 con las credenciales del `.env`, y que `estado.php` muestra la versión de PostgreSQL y el número de filas.
+
+Leímos los registros de Apache con `docker logs mi-apache`, provocamos un 404 a propósito y localizamos su línea en el log para dejar el ejemplo de diagnóstico documentado.
+
+
+## 08/10/2026
+
+Empezamos cerrando el pendiente de PostgreSQL que quedó anotado el 5/10: documentar el diagnóstico de un error real mediante los registros del contenedor.
+
+Provocamos dos fallos controlados: una conexión con contraseña incorrecta y una consulta a una tabla que no existe. Los leímos con `docker logs mi-postgres` y vimos que el servidor deja en el log el usuario, la base y el motivo exacto (`password authentication failed` y `relation "..." does not exist`). Dejamos capturada la salida y explicado cómo se llega de la línea del log a la causa.
+
+Comprobamos también que el contenedor registra arranque, conexiones y errores, y lo dejamos fijado en la línea `command:` del servicio de base de datos en el `compose.yaml`.
+
+
+## 09/10/2026
+
+Dedicamos la jornada a la política de contraseñas (P1), que estaba redactada pero sin comprobar en la práctica.
+
+Revisamos que los parámetros del documento `POLITICA_CONTRASENAS.md` se cumplen de verdad en cada servicio: servidor (longitud y complejidad mínimas), Forgejo, intranet y base de datos. Hicimos intentos reales con una contraseña débil y comprobamos que se rechaza, y guardamos las capturas para la documentación.
+
+Aprovechamos para comprobar que ninguna contraseña real está escrita en ficheros que vayan a Git: las claves viven solo en `.env`, que está en el `.gitignore`, y en el repositorio queda únicamente la plantilla `.env.example`.
+
+
+## 19/10/2026
+
+Retomamos el trabajo tras las fiestas del Pilar con el acceso remoto.
+
+Claves SSH individuales para todo el equipo. Hasta ahora solo Alvaro tenía su clave desplegada en su propio usuario y el resto seguíamos entrando con el usuario compartido `asir2`.
+
+Creamos un usuario de sistema con permisos de administración para cada persona (Jaime, Andreas, Diego) y guardamos las claves públicas en `sistema/usuarios/*.pub`. Escribimos un script `crear_usuario.sh` para que el alta sea repetible y no se haga a mano en el servidor. Ninguna clave privada sale del portátil de su dueño.
+
+Comprobamos que cada uno entra con su clave, que con contraseña el servidor rechaza la conexión y que `ssh root@...` sigue denegado. Con esto dejamos de depender de `asir2`.
+
+
+## 20/10/2026
+
+Pasamos a Forgejo: corregimos la incidencia pendiente del 19 de septiembre, el aviso del `ROOT_URL` en `app.ini`.
+
+Decidimos que la dirección definitiva es `git.huesca.empresa.lan` (a través del proxy inverso de Apache) y no la IP del aula con el puerto 3000. Ajustamos `ROOT_URL` y `SSH_DOMAIN` en `forgejo-docker/gitea/conf/app.ini`, reiniciamos el contenedor y comprobamos que el aviso desaparece y que la dirección de clonado que muestra la interfaz es la correcta.
+
+Después hicimos la restauración de Forgejo sobre un volumen completamente nuevo (F5 y prueba 20), que era lo que faltaba. Hicimos un `forgejo dump`, borramos el contenedor y su volumen, levantamos un Forgejo vacío y restauramos el dump. Volvieron la organización `huesca`, las cuentas, el repositorio y las plantillas y etiquetas de incidencias.
+
+
+## 21/10/2026
+
+Revisión del DNS. Reorganizamos el primario con dos vistas, interna y aula, de modo que el aula solo resuelva los nombres de la sede y la red interna tenga además recursividad para internet.
+
+Pasamos las zonas a plantillas (`dns/*.tpl`) que se generan a partir de `sede.env`, y protegimos la transferencia de zona al secundario con una clave TSIG, de forma que solo quien tenga la clave pueda pedir la lista de nombres. Comprobamos la transferencia firmada, los registros `MX` y `CNAME` y que el secundario recibe las zonas con el mismo serial.
+
+Cerramos también la prueba 6 con un intento real de transferencia de zona desde un equipo que no es el secundario (`nslookup` con `ls -d`), que el primario rechaza, y guardamos la captura.
+
+
+## 22/10/2026
+
+Trabajo sobre la red simulada. Exportamos la topología de GNS3 como proyecto portable (`gns3/red_huesca.gns3project`) y la subimos al repositorio, para cerrar la necesidad R5 (topología versionada y coincidente con la documentación).
+
+Escribimos el `README.md` de la carpeta `gns3/`: qué hay que tener antes (servidor GNS3 en el propio servidor, puente `br-virtual` creado y la imagen del DNS secundario), cómo se importa el proyecto y el esquema de la topología (Cloud1, Switch1, PC1, PC2 y `dns-secundario-1`). Probamos a importarlo desde cero y los nodos arrancan, con el aviso esperable de interfaces que no existen en la máquina.
+
+
+## 23/10/2026
+
+Empezamos a convertir la instalación en un único instalador por fases, `instalar.sh`, para que la sede se pueda levantar desde cero sin tocar nada a mano. Escribimos las fases `comprobar`, `red`, `sistema`, `dns`, `gns3`, `forgejo` y `web`, además de `verificar`, que lanza las pruebas de red, contenedores, permisos de la base, DNS, GNS3 y las pruebas HTTP de `web/probar.sh`.
+
+Centralizamos los datos de la sede (interfaz, IP del aula, puerta de enlace, red interna y dominio) en `sede.env`, sin secretos. Cada fase mira primero qué está hecho y solo cambia lo que falta, y nunca borra datos de la base ni de Forgejo; los borrados solo se hacen a mano con `reiniciar bd --si`. La fase `red` solo se aplica sola si la interfaz ya tiene la IP esperada, para no perder el acceso por SSH.
+
+Dejamos además un único `compose.yaml` con los servicios que hay hasta ahora (`mi-apache`, `mi-postgres`, `forgejo` y `mi-bind9`), con versiones de imagen fijadas, volúmenes y salud en la base de datos.
+
+
+## 26/10/2026
+
+Prueba del despliegue en una máquina limpia. Partimos de un Ubuntu Server recién instalado, clonamos la rama, rellenamos `.env` y lanzamos `sudo ./instalar.sh`.
+
+Aparecieron varios fallos que solucionamos rapidamente. Tras corregir los fallos en el instalador y repetimos hasta que dio `=== TODO CORRECTO ===` dos veces seguidas. También comprobamos que la segunda ejecución no cambia nada.
+
+Escribimos `docs/comprobaciones.md`, con una prueba numerada por cada comprobación, la orden, la salida esperada y dónde mirar si falla, y los scripts `scripts/comprobaciones-contenedores.sh`, `scripts/prueba-fallos-bd.sh` y `scripts/recoger-datos-bd.sh` para repetirlas y recoger evidencias para las tareas que se nos pedian.
+
+
+## 27/10/2026
+
+Repetimos la prueba de reinicio (prueba 16). Tras `sudo reboot` esperamos a que volviera todo, lanzamos `docker ps` completo y comprobamos que los contenedores estaban `Up` sin tocar nada.
+
+Después repetimos las pruebas 1 a 15 y todas pasaron. Anotamos que el arranque de Docker sigue tardando algo más que el resto de servicios, pero no afecta: todo termina levantándose solo.
+
+
+## 28/10/2026
+
+Dedicamos el día al funcionamiento por Forgejo: incidencias, ramas y pull requests.
+
+Abrimos incidencias reales con las plantillas `tarea`, `ayuda` y `verificacion` y sus etiquetas por módulo, y las asignamos a cada persona. Hasta ahora todas las etiquetas mostraban 0 incidencias.
+
+Fusionamos por pull request las investigaciones pendientes (nombres, acceso remoto, contenedores, web, base de datos, Forgejo y simulación de red) y cerramos las incidencias desde la propia confirmación que las resuelve. Revisamos que cada confirmación lleva la identidad de su autor y un mensaje que explica el cambio.
+
+
+## 29/10/2026
+
+Recibimos la segunda parte del encargo: servicio de directorio de usuarios, panel de gestión de proyectos del BIFI (Reto 1) y acceso externo a la base de datos para un responsable. Lo repartimos entre el equipo y repasamos qué piezas dependen de cuáles.
+
+Siguiendo la norma de no implementar nada sin la investigación fusionada, empezamos por la investigación del servicio de directorio: qué es LDAP, cómo funciona, y la comparación entre OpenLDAP, 389 Directory Server y las opciones de Windows.
+
+
+## 30/10/2026
+
+Terminamos la investigación del directorio y elegimos OpenLDAP en contenedor, con LAM (LDAP Account Manager) como interfaz web de gestión, porque encaja con el resto de la sede, que ya corre en Docker Compose. La fusionamos por pull request antes de tocar el servidor.
+
+En paralelo diseñamos el árbol del directorio: unidades `investigadores`, `visitas`, `grupos`, `servicios` y `politicas`, bajo `dc=huesca,dc=empresa,dc=lan`.
+
+
+## 02/11/2026
+
+Añadimos al `compose.yaml` los servicios `ldap` (puertos 389 y 636) y `lam` (puerto 8080), con volúmenes para que los datos sobrevivan a la destrucción del contenedor y con las contraseñas del administrador, de la configuración y de LAM en `.env`. Ampliamos `.env.example` con las variables nuevas.
+
+Escribimos `ldif/01_estructura.ldif` con las unidades organizativas, los grupos `investigadores`, `visitas` y `admins` y una cuenta de servicio de solo lectura. Lo cargamos con `ldapadd` y comprobamos la estructura con `ldapsearch`.
+
+
+## 03/11/2026
+
+Cargamos los usuarios de ejemplo con `ldif/02_usuarios.ldif` y comprobamos con `ldapsearch` que cada uno pertenece a su grupo. Probamos que la cuenta de servicio de solo lectura puede consultar pero no modificar.
+
+Reiniciamos el contenedor `ldap` y comprobamos que los datos se conservan. Entramos en LAM con la contraseña del `.env` y gestionamos un usuario desde la interfaz web.
+
+
+## 04/11/2026
+
+Hicimos que el servidor autentique contra OpenLDAP mediante SSSD. Instalamos `sssd`, `sssd-ldap`, `libpam-sss` y `libnss-sss`, y generamos `/etc/sssd/sssd.conf` con acceso restringido al grupo `investigadores` y con la cuenta de servicio de solo lectura para las consultas.
+
+Comprobamos con `getent passwd` que el sistema ve a los usuarios del directorio, y que un usuario de LDAP puede iniciar sesión mientras uno del grupo `visitas` queda rechazado. Dejamos el procedimiento recogido en `scripts/sssd.sh` para que sea repetible.
+
+Lo añadimos a `instalar.sh` como fase `sssd`.
+
+
+## 05/11/2026
+
+Abrimos la parte de Active Directory. Hablamos de cómo integrar las cuentas con el controlador de dominio de Windows Server (dc1, `ad.huesca.empresa.lan`) y decidimos que OpenLDAP sea el directorio principal y que sus cuentas se sincronicen hacia AD, no al revés.
+
+Redactamos la investigación (Windows Server, AD y sincronización frente a alternativas) y la fusionamos antes de implementar nada. Anotamos que la estructura de AD que necesitan nuestros scripts no coincide con el diseño de ejemplo que figuraba en el enunciado, así que la documentaremos nosotros.
+
+
+## 06/11/2026
+
+Preparación de Active Directory en dc1. Escribimos `sincronizacion/windows-preparar-ad.ps1`, que crea la OU `Huesca` con `Investigadores`, `Visitas`, `Grupos` y `Servicios`, los grupos `GG-Investigadores` y `GG-Visitas` y la cuenta de servicio `svc-sync`.
+
+A `svc-sync` le delegamos solo lo imprescindible: crear y eliminar usuarios, control sobre las cuentas de las dos OU y escribir la pertenencia a los grupos. Sin permisos de administrador. El script es repetible y pide la contraseña al ejecutarlo.
+
+
+## 09/11/2026
+
+Dedicamos el día al cifrado de la conexión con AD. La sincronización debe ir por LDAPS, y dc1 necesitaba un certificado a nombre de `dc1.ad.huesca.empresa.lan`.
+
+Instalamos una entidad de certificación de empresa (`Huesca-CA`) en el controlador, comprobamos que dc1 solicita su certificado y exportamos el `.cer` de la CA a `sincronizacion/huesca-ad-ca.cer`. Desde Linux verificamos la conexión con `openssl s_client` contra el puerto 636 hasta obtener `Verify return code: 0`.
+
+Por el camino aparecieron los errores típicos de verificación (certificado de otra CA y nombre que no coincide), que anotamos con su causa para la documentación.
+
+
+## 10/11/2026
+
+Escribimos el script de sincronización `sincronizacion/sincronizar-ad.sh`, que lee las cuentas y grupos de OpenLDAP y crea o actualiza sus equivalentes en AD usando `svc-sync`. Tiene un modo `DRY_RUN=1` que muestra lo que haría sin tocar nada.
+
+Lo probamos primero en seco y después en real con un usuario de prueba, que apareció en la OU `Investigadores` y en el grupo `GG-Investigadores`. Comprobamos que repetir la sincronización no duplica nada.
+
+
+## 12/11/2026
+
+Automatizamos la sincronización con un servicio y un temporizador de systemd (`sincronizar-ad.service` y `sincronizar-ad.timer`) y comprobamos con `systemctl list-timers` y `journalctl` que se ejecuta sola y deja registro.
+
+Para las altas añadimos `alta-investigador.sh`, que crea el usuario en OpenLDAP y lo deja listo para sincronizar. Descubrimos que AD crea las cuentas deshabilitadas hasta que tienen contraseña, así que lo dejamos como comportamiento esperado y lo explicamos en la documentación.
+
+
+## 13/11/2026
+
+Resolvimos el tema de las contraseñas en AD. Con `cambiar-clave.sh <usuario>` se fija o cambia la clave y se habilita la cuenta; también se puede definir `AD_CLAVE_INICIAL` (mínimo 12 caracteres) en `.env` para las altas nuevas.
+
+Probamos el ciclo completo: alta en OpenLDAP, sincronización, cuenta deshabilitada en AD, fijar clave, cuenta habilitada e inicio de sesión desde un equipo Windows. También probamos que una contraseña que incumple la política se rechaza.
+
+Escribimos `docs/ad-windows.md`, con lo que debe existir en AD, los pasos en dc1 y en Linux, las comprobaciones y una tabla de errores típicos con su causa. Una persona del equipo lo siguió sin ayuda sobre un dc1 limpio para validarlo, y corregimos dos pasos que estaban incompletos.
+
+Añadimos la fase `ad` a `instalar.sh`: confía en la CA de AD, instala los scripts y el temporizador, comprueba LDAPS y `svc-sync` y hace la primera sincronización. Como la parte de Windows se hace a mano, en la ejecución completa solo avisa si dc1 no está listo.
+
+
+## 16/11/2026
+
+Acceso externo a PostgreSQL para el responsable que lo necesita. Creamos el rol `resp_demo`, solo de lectura, en `db/04_roles_externos.sql`, escrito para poder repetirse sin error.
+
+Publicamos el puerto 5432, pero con `pg_hba.conf` restringido: desde fuera de las redes de Docker solo puede entrar `resp_demo`, y el usuario de la web sigue sin poder borrar datos. Probamos con `psql` desde otro equipo que `resp_demo` lee, que no puede escribir y que cualquier otro usuario es rechazado. Actualizamos la documentación porque esto cambia lo que dijimos el 23/09 sobre el puerto cerrado.
+
+
+## 17/11/2026
+
+Empezamos el Panel del BIFI (Reto 1), una aplicación en PHP 8.3 para gestionar proyectos de investigación. Montamos su `Dockerfile` (PHP con Apache sirviendo solo el directorio `public/`) y la estructura de carpetas, separando la lógica interna (`comun/`) de lo que se sirve por la web.
+
+Implementamos el inicio y cierre de sesión con `password_verify` y regeneración del identificador de sesión, y cargamos los datos de ejemplo (usuarios, proyectos y consumos).
+
+Después pasamos a perfiles y permisos. Investigadores solo ven sus proyectos y en modo lectura, los responsables gestionan los miembros de su proyecto y el personal del CESAR da de alta proyectos nuevos.
+
+Hicimos que un proyecto al que el usuario no tiene acceso devuelva 404 y no 403, para no revelar que existe. Añadimos la validación de proyectos y miembros (sin duplicados ni usuarios que no sean investigadores) y que los datos se guarden en el volumen `datos-panel`.
+
+
+## 18/11/2026
+
+Pruebas de aceptación del panel. Definimos una matriz de pruebas (acceso anónimo, credenciales erróneas, vistas por perfil, acceso a un proyecto ajeno, alta solo por CESAR, añadir y quitar miembros, cálculo de consumos, cierre de sesión y regeneración de sesión) y las ejecutamos una por una, recogiendo el resultado real en `panel/pruebas.md`.
+
+Añadimos el alias `panel` en la zona DNS y el proxy inverso en Apache para `panel.huesca.empresa.lan`. Comprobamos que funciona por nombre y por el puerto 8081.
+
+Añadimos el servicio `panel` al `compose.yaml`, con lo que quedan los siete servicios (`mi-apache`, `mi-postgres`, `forgejo`, `mi-bind9`, `ldap`, `lam` y `panel`), y repetimos `sudo ./instalar.sh verificar` para comprobar que todo sigue en marcha.
+
+
+## 19/11/2026
+
+Fusionamos las ramas de trabajo de cada área en una sola (`main`) y resolvimos los conflictos, sobre todo en `compose.yaml`, `README.md` y la documentación, donde habían quedado marcas de conflicto sin limpiar en la tabla de pruebas de aceptación.
+
+Actualizamos la documentación final con los apartados de LDAP, Active Directory, panel del BIFI y acceso externo a PostgreSQL, y revisamos el diagrama de red y las direcciones para que coincidan con `sede.env` (red interna `10.2.0.0/24`, servidor en `10.2.0.1` y DNS secundario en `10.2.0.2`). Repasamos el cuaderno de sesión contra los registros y las capturas, y pusimos al día los estados de los checklists.

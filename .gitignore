@@ -1,6 +1,10 @@
 # Claves de verdad: solo en el servidor
 # (sede.env NO se ignora: no tiene secretos y instalar.sh lo necesita al clonar)
 .env
+# Claves de PostgreSQL de cada usuario: viven en su $HOME (modo 600), nunca en el repositorio
+.pgpass
+pgpass.conf
+.pg_service.conf
 
 # Lo que instalar.sh genera a partir de .env (htpasswd, cert, etc.)
 secretos/

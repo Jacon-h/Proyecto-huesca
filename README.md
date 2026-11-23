@@ -1,8 +1,8 @@
 # Sede Huesca · `huesca.empresa.lan`
 
 Servidor de la sede de Huesca: red, DNS (BIND9), web (Apache + PHP), base de datos (PostgreSQL),
-Git (Forgejo), directorio OpenLDAP (con su panel LAM) y la red interna simulada en GNS3. **Todo se despliega con tres órdenes** en una máquina
-limpia, sin tocar nada a mano.
+Git (Forgejo), directorio OpenLDAP (con su panel LAM), el panel del BIFI (PHP, login y perfiles) y la red
+interna simulada en GNS3. **Todo se despliega con tres órdenes** en una máquina limpia, sin tocar nada a mano.
 
 ## Qué necesitas antes
 
@@ -22,7 +22,7 @@ docker compose ps                                     # y comprueba que está en
 | 1 · `git clone ...` | Descarga la rama `despliegue` en la carpeta `sede` y entra en ella. `<url>` es la del repositorio. |
 | 2 · `cp .env.example .env && nano .env` | Copia la plantilla de contraseñas y la abre para rellenarla (`.env` no va a Git). |
 | 3 · `sudo ./instalar.sh` | Instala y arranca todo, sin pedir nada. Es seguro repetirlo. |
-| `docker compose ps` | Muestra los seis servicios; deben estar en `running`. |
+| `docker compose ps` | Muestra los siete servicios; deben estar en `running`. |
 
 ### 1. Descargar el proyecto
 
@@ -41,15 +41,18 @@ cp .env.example .env && nano .env
 ```
 
 Copia la plantilla y ábrela para rellenarla. `.env` **no va a Git**: las claves solo existen en el servidor.
-**Son obligatorias las nueve variables**: si falta alguna, el instalador se detiene y dice cuál.
+**Son obligatorias las once primeras variables** (las de Active Directory solo hacen falta para la fase `ad`):
+si falta alguna, el instalador se detiene y dice cuál.
 Escribe cada valor justo después del `=`, sin espacios ni comentarios en la misma línea.
 
 | Variable | Para qué sirve |
 |---|---|
-| `DB_NAME` | Nombre de la base de datos de PostgreSQL. |
+| `DB_NAME` | Nombre de la base de la web (tabla `inventario`). No puede ser `bifi`. |
 | `DB_USER` | Usuario con el que entra la **web**: lee, inserta y edita, pero no puede borrar. No puede llamarse `postgres`. |
 | `DB_PASSWORD` | Contraseña de ese usuario. |
-| `POSTGRES_PASSWORD` | Contraseña del administrador `postgres` (es el dueño de la tabla; la web no lo usa). |
+| `POSTGRES_PASSWORD` | Contraseña del administrador `postgres` (es el dueño de todo; la web no lo usa y no entra por red). |
+| `BIFI_PANEL_PASSWORD` | Contraseña del usuario `panel`, con el que el panel entra en la base `bifi`. |
+| `BIFI_RESP_PASSWORD` | Contraseña del usuario `resp_demo`, con el que un responsable entra en `bifi` desde el aula. |
 | `INTRANET_USUARIO` / `INTRANET_CLAVE` | Usuario y contraseña de la intranet. |
 | `LDAP_ADMIN_PASSWORD` | Administrador del directorio OpenLDAP (`cn=admin,dc=huesca,dc=empresa,dc=lan`). |
 | `LDAP_CONFIG_PASSWORD` | Administrador de la configuración de OpenLDAP. |
@@ -82,10 +85,11 @@ Lanza todas las fases una detrás de otra. Tarda unos minutos y **no pide nada**
 | `dns` | Genera las zonas desde `dns/*.tpl` y `sede.env`, crea la clave TSIG (una sola vez), valida todo y levanta `mi-bind9` con dos vistas (interna y aula). |
 | `gns3` | Instala el servidor GNS3, construye la imagen del DNS secundario (con la clave TSIG) e importa y arranca el proyecto de la red interna. |
 | `forgejo` | Prepara Forgejo y su SSH. Si existe `restauracion/forgejo-dump.zip`, restaura los datos de otro Forgejo. |
-| `web` | Genera `secretos/intranet.htpasswd` desde `.env` y levanta `mi-apache`, `mi-postgres`, `forgejo`, `ldap` y `lam`. |
+| `web` | Genera `secretos/intranet.htpasswd` desde `.env`, construye las imágenes (`web`, `db`, `panel`) y levanta `mi-apache`, `mi-postgres`, `forgejo`, `ldap`, `lam` y `panel`. Al final lanza la fase `bd`. No borra datos de LDAP salvo con `REINICIAR_LDAP=1`. |
+| `bd` | Repite `db/04_bifi.sh` (base `bifi`, usuarios `panel` y `resp_demo`, límites y permisos; es repetible), instala `psql` en el servidor y deja `psql service=bifi` listo para quien lanzó `sudo` (`~/.pg_service.conf` y `~/.pgpass` en modo 600). |
 | `ad` | Sincroniza OpenLDAP → Active Directory: confía en la CA de AD, instala los scripts de `sincronizacion/` y su temporizador, genera `/etc/huesca/`, comprueba LDAPS y `svc-sync`, y hace la primera sincronización. Antes hay que hacer a mano la parte de Windows (ver abajo). En la ejecución completa solo avisa si Windows no está listo; sola (`sudo ./instalar.sh ad`) marca FALLO. |
 | `sssd` | Hace que este servidor autentique a los usuarios contra OpenLDAP. |
-| `verificar` | Prueba red, contenedores, permisos de la base, SSH de Forgejo, DNS (incluido TSIG y recursión del aula), GNS3 y las pruebas HTTP de `web/probar.sh`. |
+| `verificar` | Prueba red, contenedores, permisos de la base, SSH de Forgejo, DNS (incluido TSIG y recursión del aula), GNS3, las pruebas HTTP de `web/probar.sh` (también el panel) y las de la base de `db/probar.sh` (ASGBD RA2). |
 | `reiniciar ldap\|bd --si` | **Solo a mano.** Borra los datos de LDAP o de la base y los crea de nuevo. Sin `--si` no hace nada. |
 
 Una fase suelta se puede lanzar sola: `sudo ./instalar.sh <fase>` (por ejemplo `sudo ./instalar.sh dns`).
@@ -93,7 +97,9 @@ El código de las fases largas está en `scripts/` (`gns3.sh`, `forgejo.sh`, `ss
 
 **Active Directory (fase `ad`).** OpenLDAP es el directorio principal y Windows Server recibe sus cuentas. La fase `ad` hace todo lo del servidor Linux, pero antes hay que hacer en dc1 (docs/ad-windows.md): crear `svc-sync`, delegarle las OU Investigadores y Visitas y escribir pertenencia en GG-Investigadores y GG-Visitas, instalar la entidad de certificación, y exportar su certificado a `sincronizacion/huesca-ad-ca.cer`. Después se rellena `AD_SYNC_PASSWORD` en `.env` y se lanza `sudo ./instalar.sh ad`. Las cuentas nuevas nacen deshabilitadas en AD hasta fijar su contraseña (`AD_CLAVE_INICIAL` o `sudo cambiar-clave.sh <usuario>`).
 
-**Qué se debe ver al terminar:** líneas `OK ...` para cada comprobación y, al final, `=== TODO CORRECTO ===`.
+**Acceso a PostgreSQL desde fuera (ASGBD RA2).** El puerto 5432 está publicado. Toda la configuración sale de `db/conf/`: el panel entra en `bifi` desde Compose (usuario `panel`), un responsable entra en `bifi` desde un equipo del aula (usuario `resp_demo`), el administrador no entra por red y la última línea de `pg_hba.conf` rechaza todo lo demás. Detalle, IPs que ve el gestor y pruebas: [`db/README.md`](db/README.md). Desde otro equipo del aula: `psql -h <IP_AULA> -U resp_demo -d bifi`.
+
+**Qué se debe ver al terminar:** líneas `OK ...` para cada comprobación y, al final, `=== TODO BIEN TODO CORRECTO Y YO QUE ME ALEGRO ===`.
 Si algo falla aparece `FALLO ...` con el motivo y el script termina con `=== HAY COMPROBACIONES FALLIDAS ===`.
 
 ### 4. Comprobar que está en marcha
@@ -102,19 +108,19 @@ Si algo falla aparece `FALLO ...` con el motivo y el script termina con `=== HAY
 docker compose ps
 ```
 
-Deben aparecer los seis servicios en estado `running` (`healthy` en la base de datos):
+Deben aparecer los siete servicios en estado `running` (`healthy` en la base de datos):
 
 | Servicio | Contenedor | Puerto |
 |---|---|---|
 | `web` | `mi-apache` | 80 |
-| `db` | `mi-postgres` | solo red interna de Docker |
+| `db` | `mi-postgres` | 5432 (desde el aula solo `resp_demo` a `bifi`; ver [`db/README.md`](db/README.md)) |
 | `git` | `forgejo` | 3000 (web) y 2222 (SSH) |
 | `dns` | `mi-bind9` | 53 (red del servidor) |
 | `ldap` | `ldap` | 389 y 636 |
 | `lam` | `lam` | 8080 |
+| `panel` | `panel` | 8081 (y `panel.huesca.empresa.lan` por Apache) |
 
 Si alguno no está en `running`: `docker logs <contenedor>` muestra el motivo y `sudo ./instalar.sh verificar` repite las pruebas.
-La lista completa de pruebas, con la salida esperada y qué mirar si fallan, está en [`docs/comprobaciones.md`](docs/comprobaciones.md).
 
 ## Qué se obtiene
 
@@ -128,8 +134,45 @@ Los nombres los resuelve el DNS de la sede (apunta tu equipo a la IP del servido
 | GNS3 | `http://gns3.huesca.empresa.lan` | libre dentro de la sede |
 | Estado de la web | `http://www.huesca.empresa.lan/estado.php` | libre; muestra si la base responde y cuántas filas tiene |
 | LAM (gestión de usuarios LDAP) | `http://<IP_AULA>:8080` | contraseña `LAM_PASSWORD` |
+| Panel del BIFI | `http://panel.huesca.empresa.lan` (o `http://<IP_AULA>:8081`) | login con perfiles (usuarios de ejemplo en [`panel/readme.md`](panel/readme.md)) |
+| Base `bifi` (PostgreSQL) | `<IP_AULA>:5432` | `psql service=bifi` (usuario `resp_demo`, solo desde el aula) |
 
 Sin DNS configurado se puede probar con `curl -H "Host: www.huesca.empresa.lan" http://localhost/`.
+
+## Cómo viajan las peticiones
+
+```text
+ Equipo del aula (192.168.6.x)
+   │  navegador: http://panel.huesca.empresa.lan        psql service=bifi (resp_demo)
+   │  DNS de la sede (mi-bind9) → 192.168.6.105         │
+   ▼                                                    ▼
+ Servidor 192.168.6.105 ── :80 ──────────────┐        :5432 (DNAT de Docker: el origen no cambia)
+                                              ▼          │
+   red "frontal" de Compose            mi-apache          │
+                                  (ServerName panel.*)   │
+                                              │ proxy     │
+                                              ▼          ▼
+                                            panel ─────► mi-postgres
+                                    (usuario "panel",   pg_hba.conf decide por usuario, base e IP
+                                     red "frontal" o    ├─ panel / web desde Compose      → entran
+                                     "trasera")         ├─ resp_demo desde el aula a bifi → entra
+                                                        ├─ postgres por red              → reject
+                                                        └─ todo lo demás                 → reject
+```
+
+- `frontal`: red normal de Compose; por ella se publican los puertos (`80`, `5432`, `8081`…).
+- `trasera`: red `internal` (sin salida a Internet ni puertos publicados). La base, la web y el panel están
+  en las dos.
+- La web de la sede (`mi-apache`) usa `DB_USER` sobre `DB_NAME`; el panel usa `panel` sobre `bifi`.
+
+## Comprobar las prácticas
+
+| Práctica | Orden | Qué hace |
+|---|---|---|
+| ASGBD RA2 · La base abre a clientes de fuera | `sudo ./db/probar.sh` (y `sudo ./db/probar.sh parada`) | P1, P2, P4–P8, IPs que ve el gestor y `stop_grace_period`. P3 se hace desde otro equipo del aula: [`db/README.md`](db/README.md#pruebas). |
+| IAW RA5 · El panel con formularios, login y perfiles | `bash panel/pruebas/probar-panel.sh http://panel.huesca.empresa.lan` | A1–A10 con curl. Cómo enseñar cada una a mano: [`panel/pruebas.md`](panel/pruebas.md). |
+
+`sudo ./instalar.sh verificar` incluye las pruebas de la base y las del panel por Apache.
 
 ## Datos de la sede
 
@@ -147,13 +190,15 @@ Se leen de `sede.env`. Valores actuales:
 | Carpeta / fichero | Contenido |
 |---|---|
 | `instalar.sh` | Instalador por fases (lo único que se ejecuta). Las fases largas están en `scripts/`. |
-| `scripts/` | `gns3.sh`, `forgejo.sh` y `sssd.sh`: las fases que no caben en `instalar.sh`. |
+| `scripts/` | `gns3.sh`, `forgejo.sh`, `sssd.sh` y `ad.sh`: las fases que no caben en `instalar.sh`. Además, scripts para recoger evidencias de la base. |
 | `compose.yaml` | Todos los contenedores de la sede. Es el único compose. |
 | `.env.example` / `.env` | Plantilla de claves / claves reales (no van a Git). |
 | `sede.env` | Datos de la sede (sin secretos; va a Git). |
-| `red/`, `dns/`, `gns3/`, `sistema/`, `web/`, `db/`, `ldif/` | Configuración de cada área, con su propio `README.md` si lo tiene. |
+| `db/` | PostgreSQL: imagen, `conf/` (`postgresql.conf`, `pg_hba.conf`), scripts de creación, pruebas (`probar.sh`) y cliente (`cliente/`). Ver [`db/README.md`](db/README.md). |
+| `panel/` | Panel del BIFI en PHP (login, perfiles, formularios). Ver [`panel/readme.md`](panel/readme.md) y [`panel/pruebas.md`](panel/pruebas.md). |
+| `red/`, `dns/`, `gns3/`, `sistema/`, `web/`, `ldif/` | Configuración de cada área, con su propio `README.md` si lo tiene. |
 | `forgejo-docker/` | Datos y configuración del contenedor de Forgejo. |
-| `docs/` | Bitácora, investigaciones, documentación final y [`comprobaciones.md`](docs/comprobaciones.md). |
+| `docs/` | Bitácora, investigaciones y documentación final del proyecto. |
 
 ## Si algo falla
 
@@ -166,6 +211,9 @@ Se leen de `sede.env`. Valores actuales:
 | Puerto 53 ocupado | El instalador desactiva el *stub* de `systemd-resolved`; si persiste: `sudo ss -lntup \| grep :53`. |
 | Un contenedor no arranca | `docker logs mi-apache`, `docker logs mi-postgres`, `docker logs forgejo`, `docker logs mi-bind9`, `docker logs ldap` o `docker logs lam`. |
 | `FALLO usuario ... PUEDE borrar` | La base se creó antes de separar el usuario de la web. `sudo ./instalar.sh reiniciar bd --si` la crea de nuevo (borra los datos; vuelven las filas iniciales). |
+| `ERROR: falló db/04_bifi.sh` | El motivo sale justo encima. Lo habitual: falta `BIFI_PANEL_PASSWORD` o `BIFI_RESP_PASSWORD` en `.env`, o la imagen de `db` no se ha reconstruido (`docker compose build db`). |
+| `FALLO` en `db/probar.sh` | Cada línea dice qué esperaba y qué salió. `docker logs mi-postgres` muestra cada conexión con su IP y la línea de `pg_hba.conf` que se le aplicó. |
+| Desde otro equipo `psql` no conecta | `Test-NetConnection <IP_AULA> -Port 5432` (Windows) o `nc -zv <IP_AULA> 5432`. Si conecta pero sale `pg_hba.conf rejects connection`, ese equipo no está en las redes del aula de `db/conf/pg_hba.conf` o el usuario no es `resp_demo`. |
 | `FALLO DNS: la transferencia con la clave TSIG falla` | Revisa `generado/tsig.conf` y `docker logs mi-bind9`. Si cambió la clave, `sudo ./instalar.sh gns3` reconstruye el secundario. |
 | GNS3 con nodos sin arrancar | `ip -br addr show br-virtual` (debe estar `UP`), `journalctl -u gns3server -n 30` y `/var/log/instalar-gns3.log`. Detalle en `gns3/README.md`. |
 | La intranet devuelve 401 | Es lo correcto sin credenciales; con `INTRANET_USUARIO` / `INTRANET_CLAVE` de `.env` debe dar 200. |

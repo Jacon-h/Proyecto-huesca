@@ -8,7 +8,10 @@ $u = exigir_perfil(['cesar']);
 $errores = [];
 $p = ['codigo' => '', 'titulo' => '', 'tarifa' => 'academica', 'responsable' => ''];
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    [$p, $errores] = validar_proyecto($_POST, $u);
+    exigir_csrf();
+    // (A7) Validación en el servidor: el formulario lleva "novalidate" a propósito, para que se vea
+    // que aunque el navegador no compruebe nada, el servidor rechaza los datos malos.
+    [$p, $errores] = validar_proyecto($_POST);
     if ($errores === []) {
         $proyectos = leer_datos('proyectos');
         $proyectos[] = $p;
@@ -26,6 +29,7 @@ function error_de(array $errores, string $campo): string
 cabecera('Nuevo proyecto', $u);
 ?>
 <form method="post" class="tarjeta" novalidate>
+  <?= campo_csrf() ?>
   <label>Código <input name="codigo" value="<?= e($p['codigo']) ?>" placeholder="BIO-0003"></label>
   <?= error_de($errores, 'codigo') ?>
   <label>Título <input name="titulo" value="<?= e($p['titulo']) ?>"></label>

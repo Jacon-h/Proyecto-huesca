@@ -76,7 +76,7 @@ function nucleo_horas(array $usos): float
  *
  * Cada error, en $errores['campo'] con un mensaje que entienda quien rellena el formulario.
  */
-function validar_proyecto(array $entrada, array $u): array
+function validar_proyecto(array $entrada): array
 {
     $errores = [];
     $proyecto = [

@@ -1,74 +1,99 @@
-# Panel del BIFI · Servicio de Gestión de Proyectos
+# panel/ · Panel del BIFI (IAW RA5)
 
-Aplicación web desarrollada en PHP 8.3 para la gestión de proyectos de investigación del BIFI (Instituto de Biocomputación y Física de Sistemas Complejos). El servicio permite la autenticación de usuarios por perfiles, el control de acceso granular por proyecto, la gestión de miembros e imputación de consumos.
+Aplicación en PHP 8.3 + Apache para gestionar los proyectos del BIFI: login con perfiles, alta de proyectos
+validada en el servidor, gestión de miembros y consumo de cada proyecto. Sus datos están en ficheros JSON
+(volumen `datos-panel`); además entra en la base `bifi` de PostgreSQL con el usuario `panel` (ASGBD RA2, P1).
 
-## Estado de la aplicación
+## Cómo se arranca y dónde responde
 
-Todas las funciones requeridas para el Reto 1 (P1 a P9 del encargo IAW RA5) han sido implementadas y verificadas correctamente en la máquina virtual.
+Sale del `compose.yaml` de la raíz (servicio `panel`, contenedor `panel`) y lo levanta `sudo ./instalar.sh`.
 
-| Función / Módulo | Descripción | Estado |
-|---|---|---|
-| Autenticación | Login seguro (`password_verify`, `session_regenerate_id`) y logout | Completado |
-| Control de Acceso | Redirección HTTP 404 para proyectos no permitidos (privacidad) | Completado |
-| Permisos por Perfil | CESAR (alta), Responsables (gestión), Investigadores (lectura) | Completado |
-| Validación | Reglas en `validar_proyecto()` y verificación estricta de miembros | Completado |
-| Persistencia | Ficheros JSON respaldados en el volumen Docker `datos-panel` | Completado |
+| Dirección | Camino |
+|---|---|
+| `http://panel.huesca.empresa.lan` | DNS de la sede → Apache (`mi-apache`, `web/huesca.conf`) → proxy a `http://panel:80/` |
+| `http://<IP_AULA>:8081` | Directo al contenedor (para probar sin el proxy) |
 
-## Estructura del código
+## Estructura
 
 ```text
-Dockerfile          PHP 8.3 con Apache. Sirve únicamente el directorio public/
-public/             Punto de entrada web accesible públicamente
-  index.php         Lista de proyectos visibles según el perfil autenticado
-  proyecto.php      Detalle del proyecto, miembros y cálculo de consumos
-  proyecto-nuevo.php Formulario de alta (exclusivo para perfil CESAR)
-  login.php         Formulario de autenticación
-  logout.php        Cierre de sesión y destrucción de variables de sesión
-  estilo.css        Estilos visuales de la interfaz
-comun/              Lógica interna (protegida de acceso directo por navegador)
-  arranque.php      Inicialización de sesión y carga de dependencias
-  funciones.php     Funciones auxiliares (escape HTML, lectura/escritura JSON)
-  sesion.php        Gestión de sesiones (`entrar()`, `salir()`, `exigir_login()`, `exigir_perfil()`)
-  proyectos.php     Visibilidad (`puede_ver()`), gestión de miembros y validaciones
-  plantilla.php     Renderizado de la estructura común y menú dinámico según perfil
-datos-ejemplo/      Datos iniciales (usuarios, proyectos y usos en JSON)
+Dockerfile           PHP 8.3 + Apache + pdo_pgsql. Solo se sirve public/
+public/              Lo único que ve el navegador
+  login.php          Formulario de entrada
+  logout.php         Cierra la sesión
+  index.php          Proyectos que puede ver el usuario
+  proyecto.php       Detalle, miembros (añadir/quitar) y consumo
+  proyecto-nuevo.php Alta de proyecto (solo CESAR)
+  estado-bd.php      Conexión del panel con bifi: usuario, IP que ve el gestor, colación… (solo CESAR)
+  estilo.css
+comun/               Funciones propias, fuera del alcance del navegador (P8)
+  arranque.php       Lo primero de cada página: carga lo demás y abre la sesión
+  funciones.php      e() para escapar, leer_datos(), guardar_datos(), redirigir()
+  sesion.php         iniciar_sesion(), entrar(), salir(), exigir_login(), exigir_perfil(), CSRF
+  proyectos.php      puede_ver(), puede_gestionar(), validar_proyecto(), gestionar_miembros()…
+  plantilla.php      cabecera(), menu() según el perfil, pie(), pagina_error()
+  bd.php             conectar_bifi() y estado_bifi()
+pruebas/             Para la línea de órdenes (no se sirven)
+  probar-panel.sh    Pruebas A1–A10 con curl
+  estado-bifi.php    P1: el contenedor entra en bifi (lo usa db/probar.sh)
+  demo-xss.php       A9: el mismo título con y sin escapar
+datos-ejemplo/       usuarios.json, proyectos.json y usos.json iniciales
 ```
+
+Qué funciones de `comun/` usa cada página:
+
+| Función | La usan |
+|---|---|
+| `e()` | todas las páginas |
+| `exigir_login()` | `index.php`, `proyecto.php` (y `exigir_perfil()` por dentro) |
+| `exigir_perfil()` | `proyecto-nuevo.php`, `estado-bd.php` |
+| `puede_ver()` | `index.php` (vía `proyectos_visibles()`), `proyecto.php` |
+| `puede_gestionar()` | `proyecto.php` |
+| `nombre_de()` | `index.php`, `proyecto.php` |
+| `campo_csrf()` / `exigir_csrf()` | `proyecto.php`, `proyecto-nuevo.php` |
+| `cabecera()`, `pie()` | todas las páginas |
 
 ## Usuarios de ejemplo
 
-Todos los usuarios utilizan la contraseña `bifi2026`. Las contraseñas están almacenadas mediante hash seguro en `datos-ejemplo/usuarios.json`.
+Todos con la contraseña `bifi2026`. En `datos-ejemplo/usuarios.json` solo está el hash hecho con `password_hash()`.
 
-| Usuario | Perfil | Permisos / Visibilidad |
+| Usuario | Perfil | Qué ve y qué hace |
 |---|---|---|
-| `ana` | Investigador | Miembro de `BIO-0001` (solo lectura) |
-| `luis` | Investigador | Miembro de `FIS-0002` (solo lectura) |
-| `marta` | Responsable | Responsable de `BIO-0001` (añade/quita investigadores) |
-| `jorge` | Responsable | Responsable de `FIS-0002` (añade/quita investigadores) |
-| `cesar` | Administración CESAR | Acceso global y creación de nuevos proyectos |
+| `ana` | Investigador | `BIO-0001` (es miembro). Solo su propio consumo. |
+| `luis` | Investigador | `FIS-0002` (es miembro). Solo su propio consumo. |
+| `marta` | Responsable | `BIO-0001` (es la responsable): añade y quita investigadores. |
+| `jorge` | Responsable | `FIS-0002` (es el responsable): añade y quita investigadores. |
+| `cesar` | Administración CESAR | Todos los proyectos, alta de proyectos y estado de la base. |
 
-## Despliegue y Ejecución
+Para dar a alguien otra contraseña, se genera el hash y se pega en `usuarios.json` (dentro del volumen):
 
-El servicio se despliega integrado en la infraestructura de contenedores junto con el servicio web de la sede.
+    docker exec panel php -r 'echo password_hash("nueva-clave", PASSWORD_DEFAULT), PHP_EOL;'
 
-### Arranque de los servicios
+## Seguridad
 
-Para construir e iniciar los contenedores del servidor web y el panel de proyectos:
+| Qué | Dónde |
+|---|---|
+| Contraseñas con `password_hash` / `password_verify`; mismo mensaje y mismo tiempo si el usuario no existe | `entrar()` |
+| Id de sesión nuevo al entrar (`session_regenerate_id(true)`) | `entrar()` |
+| Cookie `HttpOnly` y `SameSite=Lax`; modo estricto de sesiones (no acepta ids que PHP no creó) | `iniciar_sesion()` |
+| Salir: vacía `$_SESSION`, caduca la cookie y `session_destroy()` | `salir()` |
+| Perfil en la sesión; el menú cambia según el perfil | `entrar()`, `menu()` |
+| Autorización en el servidor en cada página y en cada POST (no solo ocultando enlaces) | `exigir_perfil()`, `puede_ver()`, `puede_gestionar()` |
+| Proyecto ajeno o inexistente: el mismo 404 (no se revela que existe) | `proyecto.php` |
+| Validación de todo lo que llega del navegador (el formulario lleva `novalidate`) | `validar_proyecto()`, `gestionar_miembros()` |
+| Código CSRF en los formularios que cambian datos | `campo_csrf()`, `exigir_csrf()` |
+| Salida escapada con `htmlspecialchars(…, ENT_QUOTES \| ENT_SUBSTITUTE, 'UTF-8')` | `e()` |
+| `comun/`, `datos/` y `pruebas/` fuera de la raíz web | `Dockerfile` |
 
-```bash
-docker compose up -d --build web panel
-```
+## Pruebas
 
-### Acceso a la aplicación
+    bash panel/pruebas/probar-panel.sh http://panel.huesca.empresa.lan
 
-- **Vía Proxy Inverso Apache (Recomendado):** `http://panel.huesca.empresa.lan`
-- **Acceso directo por puerto:** `http://192.168.6.2:8081`
+El detalle de cada prueba, con la salida esperada y cómo enseñarla a mano, está en [`pruebas.md`](pruebas.md).
 
-### Gestión de datos y volúmenes
+## Volver a los datos de ejemplo
 
-Los datos modificados se persisten en el volumen `datos-panel`. Si es necesario restablecer el estado inicial con los datos de ejemplo:
+Los cambios se guardan en el volumen `datos-panel`. Para empezar de cero (borra las altas y los cambios de miembros):
 
-```bash
-docker compose down panel
-docker volume rm huesca_datos-panel
-docker compose up -d panel
-```
+    docker compose rm -sf panel
+    docker volume rm "$(docker volume ls -q | grep -E '(^|_)datos-panel$')"
+    docker compose up -d panel

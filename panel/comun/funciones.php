@@ -21,10 +21,15 @@ const PRECIO_NUCLEO_HORA = [
     'empresa'   => 0.035,
 ];
 
-/** Escapa un texto para meterlo en HTML. Todo lo que viene del usuario o de los datos pasa por aquí. */
+/**
+ * (A9) Escapa un texto para meterlo en HTML. Todo lo que viene del usuario o de los datos pasa por aquí.
+ * - ENT_QUOTES: escapa también ' y ", así vale dentro de atributos value="..." o value='...'.
+ * - ENT_SUBSTITUTE: si llega UTF-8 roto, cambia los bytes malos por � en vez de devolver una cadena vacía.
+ * Lo que sale: < > & " ' convertidos en &lt; &gt; &amp; &quot; &#039;. El navegador los pinta como texto.
+ */
 function e(?string $texto): string
 {
-    return htmlspecialchars($texto ?? '', ENT_QUOTES, 'UTF-8');
+    return htmlspecialchars($texto ?? '', ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
 }
 
 /** Lee datos/<nombre>.json. Si no existe o está mal, devuelve una lista vacía. */

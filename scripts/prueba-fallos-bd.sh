@@ -37,7 +37,7 @@ registro() {
 }
 
 { echo "Evidencias de fallos de la base de datos · $(date '+%F %T') · $(hostname)"
-  echo "Imagen: $IMG · Versión: $(docker exec mi-postgres psql -U postgres -d "$DB_NAME" -tAc 'SHOW server_version;' 2>&1)"
+  echo "Imagen: $IMG · Versión: $(docker exec -u postgres mi-postgres psql -U postgres -d "$DB_NAME" -tAc 'SHOW server_version;' 2>&1)"
   echo "Usuario de la web: $DB_USER · Base: $DB_NAME"; } | tee -a "$OUT"
 
 titulo "1. Contraseña mal"
@@ -45,7 +45,7 @@ cliente docker exec -e PGPASSWORD=mala mi-postgres psql -h db -U "$DB_USER" -d "
 
 titulo "2a. Usuario que no existe (por red, scram-sha-256)"
 cliente docker exec -e PGPASSWORD=x mi-postgres psql -h db -U usuario_falso -d "$DB_NAME" -c "SELECT 1"; registro
-titulo "2b. Usuario que no existe (socket local, trust)"
+titulo "2b. Usuario que no existe (socket local, scram-sha-256: pide contraseña)"
 cliente docker exec mi-postgres psql -U usuario_falso -d "$DB_NAME" -c "SELECT 1"; registro
 
 titulo "3. Base que no existe (contraseña buena)"
@@ -61,7 +61,7 @@ titulo "6. Cliente fuera de la red (HACER A MANO desde OTRA máquina del aula)"
 IP_SRV="${IP_AULA%/*}"; [ -n "$IP_SRV" ] || IP_SRV=$(hostname -I | awk '{print $1}')
 echo "En otra máquina: nc -zv -w 3 $IP_SRV 5432   -> anota la salida aquí" | tee -a "$OUT"
 echo "Después, en el servidor: docker logs --tail 20 mi-postgres  (no debe aparecer ese intento)" | tee -a "$OUT"
-echo "Puertos que publica la base (debe salir vacío): '$(docker port mi-postgres)'" | tee -a "$OUT"
+echo "Puertos que publica la base (5432 para el aula; el filtro es db/conf/pg_hba.conf): '$(docker port mi-postgres)'" | tee -a "$OUT"
 
 titulo "7. Primer arranque sin contraseña"
 cliente docker run --rm --name test-sin-pass "$IMG"
