@@ -1,7 +1,7 @@
 <?php
-// Prueba P1 desde la línea de órdenes: el contenedor del panel entra en bifi.
+// Prueba P1 desde la línea de órdenes: el contenedor del panel entra en su base (BIFI_DB).
 //   docker exec panel php /var/www/panel/pruebas/estado-bifi.php
-// Lo lanza db/probar.sh. No está en public/: no se puede abrir desde el navegador.
+// Lo lanza db/pruebas/probar.sh. No está en public/: no se puede abrir desde el navegador.
 declare(strict_types=1);
 
 require __DIR__ . '/../comun/bd.php';
@@ -9,7 +9,7 @@ require __DIR__ . '/../comun/bd.php';
 try {
     $estado = estado_bifi(conectar_bifi());
 } catch (PDOException $ex) {
-    fwrite(STDERR, 'ERROR: el panel no entra en bifi: ' . $ex->getMessage() . PHP_EOL);
+    fwrite(STDERR, 'ERROR: el panel no entra en su base: ' . $ex->getMessage() . PHP_EOL);
     exit(1);
 }
 

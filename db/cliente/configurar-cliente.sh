@@ -1,23 +1,26 @@
 #!/bin/bash
-# db/cliente/configurar-cliente.sh · Deja listo  psql service=bifi  para el usuario que lo ejecuta (P8)
+# db/cliente/configurar-cliente.sh · Deja listo  psql service=<base>  para el usuario que lo ejecuta (P8)
 #
-#   bash configurar-cliente.sh <IP_DEL_SERVIDOR>
+#   bash configurar-cliente.sh <IP_DEL_SERVIDOR> [BASE] [USUARIO]
+#
+# BASE y USUARIO son BIFI_DB y BIFI_RESP_USER del .env del servidor. Si no se dan: bifi y resp_demo
+# (los valores de .env.example). El servicio se llama igual que la base:  psql service=<BASE>
 #
 # Crea dos ficheros en el $HOME del usuario (FUERA del repositorio), los dos en modo 600:
-#   ~/.pg_service.conf   a qué servidor, puerto, base y usuario apunta el servicio "bifi" (sin clave)
-#   ~/.pgpass            la contraseña de resp_demo para ese servidor (psql solo lo lee si es 600)
+#   ~/.pg_service.conf   a qué servidor, puerto, base y usuario apunta el servicio (sin clave)
+#   ~/.pgpass            la contraseña de ese usuario para ese servidor (psql solo lo lee si es 600)
 #
 # La contraseña se pide por teclado sin mostrarla. instalar.sh se la pasa por la entrada estándar.
-# Se puede repetir: sustituye la entrada "bifi" anterior en los dos ficheros y deja el resto igual.
+# Se puede repetir: sustituye la entrada anterior de esa base en los dos ficheros y deja el resto igual.
 set -e
 
 SERVIDOR="${1:-}"
+BASE="${2:-bifi}"
+USUARIO="${3:-resp_demo}"
 PUERTO=5432
-BASE=bifi
-USUARIO=resp_demo
 
 if [ -z "$SERVIDOR" ]; then
-    echo "Uso: bash $0 <IP_DEL_SERVIDOR>     (por ejemplo: bash $0 192.168.6.105)"
+    echo "Uso: bash $0 <IP_DEL_SERVIDOR> [BASE] [USUARIO]   (por ejemplo: bash $0 192.168.6.105 bifi resp_demo)"
     exit 1
 fi
 command -v psql >/dev/null || echo "AVISO: no hay psql en este equipo (Ubuntu/Debian: sudo apt install postgresql-client)"
@@ -36,12 +39,12 @@ CLAVE_PGPASS="${CLAVE_PGPASS//:/\\:}"
 
 umask 077    # todo lo que se cree aquí nace con permisos 600
 
-# 2. ~/.pg_service.conf: se quita la sección [bifi] anterior (si la hay) y se escribe la nueva
+# 2. ~/.pg_service.conf: se quita la sección [BASE] anterior (si la hay) y se escribe la nueva
 SERVICIOS="$HOME/.pg_service.conf"
 touch "$SERVICIOS"
-awk '/^\[/ { dentro = ($0 == "[bifi]") } !dentro' "$SERVICIOS" > "$SERVICIOS.nuevo"
+awk -v seccion="[$BASE]" '/^\[/ { dentro = ($0 == seccion) } !dentro' "$SERVICIOS" > "$SERVICIOS.nuevo"
 cat >> "$SERVICIOS.nuevo" <<EOF
-[bifi]
+[$BASE]
 host=$SERVIDOR
 port=$PUERTO
 dbname=$BASE
@@ -59,4 +62,4 @@ mv "$PGPASS.nuevo" "$PGPASS"
 chmod 600 "$PGPASS"
 
 echo "Listo para $(whoami): $SERVICIOS y $PGPASS (modo 600)."
-echo "Prueba:  psql service=bifi -c 'SELECT current_user, inet_client_addr();'"
+echo "Prueba:  psql service=$BASE -c 'SELECT current_user, inet_client_addr();'"

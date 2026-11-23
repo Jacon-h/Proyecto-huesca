@@ -34,7 +34,7 @@ comun/               Funciones propias, fuera del alcance del navegador (P8)
   bd.php             conectar_bifi() y estado_bifi()
 pruebas/             Para la línea de órdenes (no se sirven)
   probar-panel.sh    Pruebas A1–A10 con curl
-  estado-bifi.php    P1: el contenedor entra en bifi (lo usa db/probar.sh)
+  estado-bifi.php    P1: el contenedor entra en bifi (lo usa db/pruebas/probar.sh)
   demo-xss.php       A9: el mismo título con y sin escapar
 datos-ejemplo/       usuarios.json, proyectos.json y usos.json iniciales
 ```
