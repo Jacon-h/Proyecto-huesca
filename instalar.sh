@@ -119,15 +119,25 @@ comprobar() {
         fi
     fi
     set -a; source .env; set +a
-    for v in DB_NAME DB_USER DB_PASSWORD POSTGRES_PASSWORD BIFI_PANEL_PASSWORD BIFI_RESP_PASSWORD \
+    for v in DB_NAME DB_USER DB_PASSWORD POSTGRES_PASSWORD \
+             BIFI_DB BIFI_PANEL_USER BIFI_PANEL_PASSWORD BIFI_RESP_USER BIFI_RESP_PASSWORD \
              INTRANET_USUARIO INTRANET_CLAVE LDAP_ADMIN_PASSWORD LDAP_CONFIG_PASSWORD LAM_PASSWORD; do
         [ -n "${!v:-}" ] || { echo "ERROR: falta $v en .env"; exit 1; }
     done
+    # Nombres de bases y usuarios: minúsculas, números y _, empezando por letra o _. Así valen tal cual
+    # en pg_hba.conf y en SQL sin comillas.
+    for v in DB_NAME DB_USER BIFI_DB BIFI_PANEL_USER BIFI_RESP_USER; do
+        [[ "${!v}" =~ ^[a-z_][a-z0-9_]*$ ]] || {
+            echo "ERROR: $v='${!v}' no vale: solo minúsculas, números y _ (y que no empiece por número)"; exit 1; }
+    done
     [ "$DB_USER" != postgres ] || { echo "ERROR: DB_USER no puede ser 'postgres' (es el administrador)"; exit 1; }
-    case "$DB_USER" in
-        panel|resp_demo) echo "ERROR: DB_USER no puede ser '$DB_USER' (es un usuario de la base bifi)"; exit 1 ;;
-    esac
-    [ "$DB_NAME" != bifi ] || { echo "ERROR: DB_NAME no puede ser 'bifi' (bifi la crea db/04_bifi.sh con colación española)"; exit 1; }
+    for v in BIFI_PANEL_USER BIFI_RESP_USER; do
+        [ "${!v}" != postgres ] || { echo "ERROR: $v no puede ser 'postgres' (es el administrador)"; exit 1; }
+        [ "${!v}" != "$DB_USER" ] || { echo "ERROR: $v no puede ser igual que DB_USER ('$DB_USER')"; exit 1; }
+    done
+    [ "$BIFI_PANEL_USER" != "$BIFI_RESP_USER" ] || { echo "ERROR: BIFI_PANEL_USER y BIFI_RESP_USER tienen que ser distintos"; exit 1; }
+    [ "$DB_NAME" != "$BIFI_DB" ] || { echo "ERROR: DB_NAME y BIFI_DB tienen que ser distintos (la base del panel se crea aparte, con colación española)"; exit 1; }
+    [ -n "${REDES_AULA:-}" ] || { echo "ERROR: falta REDES_AULA en sede.env (la necesita db/conf/pg_hba.conf)"; exit 1; }
     if ! docker compose version >/dev/null 2>&1 && ! docker-compose version >/dev/null 2>&1; then
         echo "ERROR: falta el plugin docker compose"; exit 1;
     fi
@@ -639,6 +649,8 @@ web() {
         envsubst < ldif/01_estructura.ldif.tpl > ldif/01_estructura.ldif
     fi
 
+    generar_pg_hba                                    # db/conf/pg_hba.conf desde su plantilla, antes de arrancar db
+
     forgejo_entorno
     esperar_imagenes                                  # las descargas en segundo plano ya deberían haber acabado
 
@@ -667,28 +679,64 @@ web() {
 
 # ---------------------------------------------------------------- Base bifi (ASGBD RA2)
 
+# Genera db/conf/pg_hba.conf desde db/conf/pg_hba.conf.tpl con:
+#   - BIFI_DB, BIFI_PANEL_USER y BIFI_RESP_USER de .env
+#   - una línea para el responsable por cada red de REDES_AULA (sede.env)
+# Se escribe encima del fichero existente (mismo inodo), así el contenedor ve el cambio sin recrearlo.
+generar_pg_hba() {
+    local red
+    LINEAS_AULA=""
+    for red in $REDES_AULA; do
+        LINEAS_AULA+="host    ${BIFI_DB}    ${BIFI_RESP_USER}    ${red}    scram-sha-256"$'\n'
+    done
+    LINEAS_AULA="${LINEAS_AULA%$'\n'}"                 # sin salto de línea al final
+    export LINEAS_AULA
+
+    command -v envsubst >/dev/null || apt-get install -y gettext-base >/dev/null
+
+    # Docker crea una carpeta si el fichero a montar no existe: se quita para poder escribir el fichero
+    if [ -d db/conf/pg_hba.conf ]; then rm -rf db/conf/pg_hba.conf; fi
+
+    # Primero a un fichero temporal: si algo falla, el pg_hba.conf que hubiera no se queda vacío.
+    # envsubst SOLO con esta lista: no toca nada más de la plantilla.
+    envsubst '${BIFI_DB} ${BIFI_PANEL_USER} ${LINEAS_AULA}' < db/conf/pg_hba.conf.tpl > db/conf/pg_hba.conf.nuevo
+    if ! grep -q "^host    ${BIFI_DB}    ${BIFI_RESP_USER} " db/conf/pg_hba.conf.nuevo; then
+        echo "ERROR: db/conf/pg_hba.conf no se ha generado bien (revisa db/conf/pg_hba.conf.nuevo)"; exit 1
+    fi
+    # cat > (y no mv) para escribir encima del mismo fichero: el contenedor lo tiene montado y ve el cambio
+    cat db/conf/pg_hba.conf.nuevo > db/conf/pg_hba.conf
+    rm db/conf/pg_hba.conf.nuevo
+    chmod 644 db/conf/pg_hba.conf
+    echo "    db/conf/pg_hba.conf generado (base $BIFI_DB, usuarios $BIFI_PANEL_USER y $BIFI_RESP_USER, redes: $REDES_AULA)"
+}
+
 # Espera hasta 90 s a que PostgreSQL acepte conexiones TCP dentro del contenedor (el servidor
 # temporal que usa la imagen para inicializar la base solo escucha por socket: así no se confunde).
 esperar_bd() {
     for _ in $(seq 1 90); do
-        docker exec mi-postgres pg_isready -q -h 127.0.0.1 2>/dev/null && return 0
+        # Con DB_USER, no postgres: postgres por red lo rechaza pg_hba.conf (P2) y dejaría un FATAL en el registro
+        docker exec mi-postgres sh -c 'pg_isready -q -h 127.0.0.1 -U "$DB_USER"' 2>/dev/null && return 0
         sleep 1
     done
     return 1
 }
 
 bd_bifi() {
-    titulo "Base bifi: usuarios, límites y cliente psql (ASGBD RA2)"
+    titulo "Base $BIFI_DB: usuarios, límites y cliente psql (ASGBD RA2)"
     esperar_bd || { echo "ERROR: PostgreSQL no responde (mira: docker logs mi-postgres)"; exit 1; }
 
-    # 1. db/04_bifi.sh ya se ejecutó al crear el volumen; se repite para que valga también con una base
+    # 1. pg_hba.conf al día con .env y sede.env, y que PostgreSQL lo vuelva a leer (no hace falta reiniciar)
+    generar_pg_hba
+    docker exec -u postgres mi-postgres psql -qtAc "SELECT pg_reload_conf()" >/dev/null
+
+    # 2. db/04_bifi.sh ya se ejecutó al crear el volumen; se repite para que valga también con una base
     #    que ya existía y para aplicar contraseñas nuevas de .env. Es idempotente.
     if ! docker exec -u postgres mi-postgres bash /docker-entrypoint-initdb.d/04_bifi.sh >/dev/null; then
         echo "ERROR: falló db/04_bifi.sh (el motivo está justo encima)"; exit 1
     fi
-    echo "    bifi: base en UTF-8/es_ES, usuarios panel y resp_demo con límites (db/04_bifi.sh)"
+    echo "    $BIFI_DB: base en UTF-8/es_ES, usuarios $BIFI_PANEL_USER y $BIFI_RESP_USER con límites (db/04_bifi.sh)"
 
-    # 2. Cliente psql en el servidor y  psql service=bifi  para quien ha lanzado sudo (P8).
+    # 3. Cliente psql en el servidor y  psql service=<BIFI_DB>  para quien ha lanzado sudo (P8).
     #    ~/.pg_service.conf y ~/.pgpass quedan en SU carpeta personal, en modo 600, fuera del repositorio.
     if ! command -v psql &>/dev/null; then
         asegurar_dns
@@ -696,8 +744,8 @@ bd_bifi() {
     fi
     local usuario="${SUDO_USER:-root}"
     printf '%s\n' "$BIFI_RESP_PASSWORD" \
-        | sudo -H -u "$usuario" bash db/cliente/configurar-cliente.sh "$IP_AULA_SOLO" >/dev/null
-    echo "    psql service=bifi listo para $usuario (~/.pg_service.conf y ~/.pgpass en 600)"
+        | sudo -H -u "$usuario" bash db/cliente/configurar-cliente.sh "$IP_AULA_SOLO" "$BIFI_DB" "$BIFI_RESP_USER" >/dev/null
+    echo "    psql service=$BIFI_DB listo para $usuario (~/.pg_service.conf y ~/.pgpass en 600)"
 }
 
 
@@ -793,9 +841,9 @@ verificar() {
         bash web/probar.sh || FALLOS=1
     fi
 
-    # ASGBD RA2: P1, P2, P4-P8 y qué IP ve el gestor (la prueba de parada va aparte: db/probar.sh parada)
-    if [ -f db/probar.sh ]; then
-        bash db/probar.sh || FALLOS=1
+    # ASGBD RA2: P1, P2, P4-P8 y qué IP ve el gestor (la prueba de parada va aparte: db/pruebas/probar.sh parada)
+    if [ -f db/pruebas/probar.sh ]; then
+        bash db/pruebas/probar.sh || FALLOS=1
     fi
 
     titulo "Estado de los contenedores:"

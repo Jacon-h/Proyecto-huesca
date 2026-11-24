@@ -1,15 +1,15 @@
 #!/bin/bash
-# db/probar.sh · Pruebas de ASGBD RA2 lanzadas desde el servidor
+# db/pruebas/probar.sh · Pruebas de ASGBD RA2 lanzadas desde el servidor
 #
-#   sudo ./db/probar.sh            P1, P2, P4, P5, P6, P7, P8 y qué IP ve el gestor (no para nada)
-#   sudo ./db/probar.sh parada     además, la prueba de stop_grace_period (para y arranca la base)
+#   sudo ./db/pruebas/probar.sh            P1, P2, P4, P5, P6, P7, P8 y qué IP ve el gestor (no para nada)
+#   sudo ./db/pruebas/probar.sh parada     además, la prueba de stop_grace_period (para y arranca la base)
 #
 # P3 (el responsable desde OTRO equipo del aula) se hace a mano: db/README.md, apartado "Pruebas".
 # instalar.sh verificar lo lanza sin "parada". Devuelve 0 si todo va bien y 1 si algo falla.
 # Las contraseñas se leen de .env y viajan por variables de entorno: no aparecen en pantalla.
 
-cd "$(dirname "$0")/.." || exit 1
-[ "$(id -u)" -eq 0 ] || { echo "ERROR: ejecútalo con sudo:  sudo ./db/probar.sh"; exit 1; }
+cd "$(dirname "$0")/../.." || exit 1
+[ "$(id -u)" -eq 0 ] || { echo "ERROR: ejecútalo con sudo:  sudo ./db/pruebas/probar.sh"; exit 1; }
 [ -f .env ] || { echo "ERROR: no hay .env"; exit 1; }
 set -a; source .env; set +a
 source sede.env
@@ -54,6 +54,16 @@ r=$(docker exec panel php /var/www/panel/pruebas/estado-bifi.php 2>&1)
 echo "$r" | sed 's/^/      /'
 if echo "$r" | grep -q "^usuario: panel$"; then bien "el panel entra como 'panel'"; else mal "el panel no entra en bifi"; fi
 IP_DESDE_COMPOSE=$(echo "$r" | awk -F': ' '$1 == "IP que ve el gestor" {print $2}')
+
+# --- Aislamiento · La base del panel es SOLO del panel ----------------------------------------
+# bifi (BIFI_DB) es la base del panel; DB_NAME es la de la web. Ninguno de los dos usuarios
+# de aplicación puede abrir la base del otro (los permisos CONNECT los pone db/04_bifi.sh).
+titulo "Aislamiento · cada aplicación con su base"
+if [ "$BIFI_DB" != "$DB_NAME" ]; then bien "base del panel ($BIFI_DB) distinta de la de la web ($DB_NAME)"; else mal "BIFI_DB y DB_NAME son la misma base"; fi
+r=$(docker exec -e PGPASSWORD="$BIFI_PANEL_PASSWORD" mi-postgres psql -h db -U "$BIFI_PANEL_USER" -d "$DB_NAME" -tAc 'SELECT 1' 2>&1)
+if echo "$r" | grep -q "permission denied for database"; then bien "$BIFI_PANEL_USER no puede abrir la base de la web ($DB_NAME)"; else mal "$BIFI_PANEL_USER en $DB_NAME: $r"; fi
+r=$(docker exec -e PGPASSWORD="$DB_PASSWORD" mi-postgres psql -h db -U "$DB_USER" -d "$BIFI_DB" -tAc 'SELECT 1' 2>&1)
+if echo "$r" | grep -q "permission denied for database"; then bien "$DB_USER (web) no puede abrir la base del panel ($BIFI_DB)"; else mal "$DB_USER en $BIFI_DB: $r"; fi
 
 # --- P2 · El administrador no entra por red ----------------------------------------------------
 titulo "P2 · El administrador no entra por red"

@@ -1,5 +1,5 @@
 <?php
-// Estado de la conexión del panel con la base bifi. Solo para el CESAR (P1 y "qué IP ve el gestor").
+// Estado de la conexión del panel con su base (BIFI_DB). Solo para el CESAR (P1 y "qué IP ve el gestor").
 declare(strict_types=1);
 
 require __DIR__ . '/../comun/arranque.php';
