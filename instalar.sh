@@ -668,9 +668,9 @@ web() {
     docker rm mi-apache mi-postgres forgejo >/dev/null 2>&1 || true
 
     if command -v docker compose &>/dev/null && docker compose version &>/dev/null; then
-        docker compose up -d --build --force-recreate web db ldap lam panel
+        docker compose up -d --build --force-recreate web dockerproxy db ldap lam panel
     else
-        docker-compose up -d --build --force-recreate web db ldap lam panel
+        docker-compose up -d --build --force-recreate web dockerproxy db ldap lam panel
     fi
 
     bd_bifi
@@ -781,7 +781,7 @@ verificar() {
     # Contenedores
     esperar_contenedores mi-bind9 mi-apache mi-postgres forgejo panel
     sleep 2        # margen para detectar reinicios en bucle
-    for c in mi-bind9 mi-apache mi-postgres forgejo panel; do
+    for c in mi-bind9 mi-apache mi-postgres forgejo panel mi-dockerproxy; do
         estado=$(docker inspect -f '{{.State.Running}} {{.RestartCount}}' "$c" 2>/dev/null || echo "no-existe")
         if [ "$estado" = "true 0" ]; then bien "contenedor $c"
         else mal "contenedor $c ($estado)"; docker logs --tail 15 "$c" 2>&1 || true; fi
@@ -834,7 +834,10 @@ verificar() {
     # Sincronización con Active Directory (solo si se ha instalado la fase ad)
     if [ -f /etc/systemd/system/sincronizar-ad.timer ] && [ -f /etc/huesca/sync-ad.env ]; then
         if systemctl is-active --quiet sincronizar-ad.timer; then bien "sincronización con AD: temporizador activo"
-        else mal "sincronización con AD: temporizador parado (sudo ./instalar.sh ad)"; fi
+        else
+            # La fase ad es opcional y necesita Windows (dc1): sin él solo se avisa, no es un fallo de la sede
+            echo "AVISO sincronización con AD: temporizador parado (dc1 aún no está listo; cuando lo esté: sudo ./instalar.sh ad)"
+        fi
     fi
 
     if [ -f web/probar.sh ]; then

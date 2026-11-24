@@ -38,6 +38,22 @@ services:
         condition: service_started
       panel:                        # Apache hace de proxy de panel.<dominio>
         condition: service_started
+      dockerproxy:                  # la intranet pide aquí las métricas por contenedor
+        condition: service_started
+
+  # ============================================================ dockerproxy · métricas de contenedores (solo lectura)
+  # Es lo único que toca docker.sock: deja pasar solo GET de /containers y nada más.
+  # Va solo en la red trasera (internal): no se publica ningún puerto ni se ve desde el aula.
+  dockerproxy:
+    <<: *comun
+    image: tecnativa/docker-socket-proxy:0.3.0
+    container_name: mi-dockerproxy
+    environment:
+      CONTAINERS: 1                 # permite leer lista, detalle y estadísticas de contenedores
+      POST: 0                       # prohíbe crear, parar o borrar
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks: [trasera]
 
   # ============================================================ db · ASGBD
   db:
