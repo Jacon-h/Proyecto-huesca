@@ -40,9 +40,16 @@ rechazado() { grep -q "pg_hba.conf rejects connection"; }
 
 # --- P7 · bifi en UTF-8 con colación española --------------------------------------------------
 titulo "P7 · Base bifi"
-r=$(admin_sql postgres "SELECT pg_encoding_to_char(encoding) || ' ' || datcollate || ' ' || datctype
+r=$(admin_sql postgres "SELECT pg_encoding_to_char(encoding) || ' ' || datlocprovider || ' ' || coalesce(daticulocale, '-')
                         FROM pg_database WHERE datname = 'bifi'")
-if [ "$r" = "UTF8 es_ES.UTF-8 es_ES.UTF-8" ]; then bien "bifi: $r"; else mal "bifi: esperaba 'UTF8 es_ES.UTF-8 es_ES.UTF-8' y salió '$r'"; fi
+if [ "$r" = "UTF8 i es-ES" ]; then bien "bifi: UTF8, colación ICU es-ES ($r)"; else mal "bifi: esperaba 'UTF8 i es-ES' (i = icu) y salió '$r'"; fi
+
+r=$(admin_sql bifi "SHOW timezone")
+if [ "$r" = Europe/Madrid ]; then bien "zona horaria en bifi: $r"; else mal "zona horaria en bifi: $r"; fi
+
+# Sin entrada "=…" en datacl: PUBLIC no tiene nada (ni CONNECT ni TEMP ni CREATE: el "=Tc" por defecto, quitado)
+r=$(admin_sql postgres "SELECT datacl FROM pg_database WHERE datname = 'bifi'")
+if [ -n "$r" ] && ! echo "$r" | grep -qE '[{,]='; then bien "PUBLIC sin privilegios en bifi: $r"; else mal "privilegios de bifi: '$r'"; fi
 
 r=$(admin_sql bifi "SELECT string_agg(palabra, ' ' ORDER BY palabra)
                     FROM (VALUES ('oso'), ('ñu'), ('nube'), ('Ávila'), ('zorro')) AS t(palabra)")

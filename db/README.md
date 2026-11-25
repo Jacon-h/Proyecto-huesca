@@ -36,7 +36,7 @@ Lo que **no** sale de `.env`, a propósito:
 | `01_esquema.sql` | Tabla `inventario` de la web (base `DB_NAME`). |
 | `02_datos.sql` | Sus 20 filas. |
 | `03_usuario_web.sh` | Usuario de la web (`DB_USER`): leer, insertar y editar `inventario`, pero no borrar. |
-| `04_bifi.sh` | Base `bifi` (UTF-8, `es_ES.UTF-8`), usuarios `panel` y `resp_demo`, sus límites y permisos. Idempotente. |
+| `04_bifi.sh` | Base `bifi` (UTF-8, colación ICU `es-ES`, zona `Europe/Madrid`), usuarios `panel` y `resp_demo`, sus límites y permisos. Idempotente. Si encuentra una `bifi` antigua con colación libc y **vacía**, la vuelve a crear con ICU. |
 | `pruebas/probar.sh` | Pruebas P1, P2, P4–P8 y qué IP ve el gestor. `sudo ./db/pruebas/probar.sh parada` añade la de `stop_grace_period`. |
 | `cliente/configurar-cliente.sh` | Crea `~/.pg_service.conf` y `~/.pgpass` (600) para `psql service=bifi` en el equipo de quien lo lanza. Admite la base y el usuario como argumentos. |
 
@@ -54,6 +54,24 @@ NOCREATEROLE`). Por defecto PostgreSQL deja conectar a cualquier usuario a cualq
 `CONNECT`); `04_bifi.sh` lo quita y lo da solo a quien le toca. Por eso `pg_hba.conf` y los permisos se
 complementan: aunque una línea de `pg_hba.conf` deje pasar a alguien, si no tiene `CONNECT` sobre la base,
 no entra (`User does not have CONNECT privilege`).
+
+## P7 · Codificación, colación ICU, zona horaria y PUBLIC
+
+- **`ENCODING UTF8`**: guarda cualquier carácter (ñ, tildes, €).
+- **`LOCALE_PROVIDER icu` + `ICU_LOCALE 'es-ES'`**: la ordenación (`ORDER BY`, índices de texto) la hace la
+  librería ICU con las reglas del español: `Ávila, nube, ñu, oso` (con colación `C` saldría `nube, oso,
+  Ávila, ñu`). Con ICU el resultado no depende de la versión de la libc del contenedor; con libc, una
+  actualización de la imagen podría cambiar el orden y dejar índices mal ordenados. `LC_COLLATE` y
+  `LC_CTYPE` (`es_ES.UTF-8`, de `db/Dockerfile`) siguen siendo obligatorios para lo que ICU no cubre.
+- **La colación no se puede cambiar en una base ya creada**: por eso se parte de `template0` y, si
+  `04_bifi.sh` encuentra una `bifi` antigua con libc, solo la recrea si está vacía. Con datos: copia
+  (`pg_dump`), `DROP DATABASE bifi`, `sudo ./instalar.sh bd` y restaurar.
+- **`timezone = 'Europe/Madrid'`**: en `postgresql.conf` (todo el servidor) y además en la propia base
+  (`ALTER DATABASE bifi SET timezone`), que es lo que se ve con `\drds`.
+- **PUBLIC sin privilegios**: por defecto toda base da a `PUBLIC` `Tc` (`T` = crear tablas temporales,
+  `c` = conectar). `REVOKE ALL ON DATABASE bifi FROM PUBLIC` lo quita; en `psql -l` ya no aparece
+  `=Tc/postgres` y solo quedan `panel=c` y `resp_demo=c`. `CREATE` en el esquema `public` ya no lo tiene
+  `PUBLIC` desde PostgreSQL 15.
 
 ## Cuándo se ejecuta cada cosa
 
@@ -238,7 +256,8 @@ verificar` también lo lanza.
 | P4 | Desde ese mismo equipo: `psql -h 192.168.6.105 -U panel -d bifi` y `-U resp_demo -d <DB_NAME>` | `pg_hba.conf rejects connection` |
 | P5 | Tres `psql service=bifi` a la vez (dos con `SELECT pg_sleep(4)`) | La tercera: `too many connections for role "resp_demo"` |
 | P6 | `psql service=bifi -c "SELECT pg_sleep(6)"` | `canceling statement due to statement timeout` |
-| P7 | `docker exec -u postgres mi-postgres psql -l` | `bifi \| postgres \| UTF8 \| libc \| es_ES.UTF-8 \| es_ES.UTF-8` |
+| P7 | `docker exec -u postgres mi-postgres psql -l` | `bifi \| postgres \| UTF8 \| icu \| es_ES.UTF-8 \| es_ES.UTF-8 \| es-ES \|` y en «Access privileges» **ninguna** entrada `=Tc/postgres` (PUBLIC sin nada) |
+| P7 (zona) | `docker exec -u postgres mi-postgres psql -d bifi -c "SHOW timezone"` | `Europe/Madrid` (también `\drds`: `timezone=Europe/Madrid` en `bifi`) |
 | P7 (orden) | `docker exec -u postgres mi-postgres psql -d bifi -c "SELECT x FROM (VALUES ('oso'),('ñu'),('nube'),('Ávila')) t(x) ORDER BY x"` | `Ávila, nube, ñu, oso` (con colación `C` saldría `nube, oso, Ávila, ñu`) |
 | P8 | `ls -l ~/.pgpass` y `psql service=bifi -c "SELECT current_user"` | `-rw-------` y `resp_demo` sin pedir contraseña |
 

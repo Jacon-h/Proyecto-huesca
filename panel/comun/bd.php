@@ -39,7 +39,8 @@ function estado_bifi(PDO $bd): array
                    host(inet_client_addr())                  AS ip_cliente,
                    host(inet_server_addr())                  AS ip_servidor,
                    pg_encoding_to_char(d.encoding)           AS codificacion,
-                   d.datcollate                              AS colacion,
+                   CASE d.datlocprovider WHEN 'i' THEN 'icu ' || d.daticulocale
+                                         ELSE 'libc ' || d.datcollate END AS colacion,
                    current_setting('statement_timeout')      AS statement_timeout,
                    r.rolconnlimit                            AS limite_conexiones
             FROM pg_database d, pg_roles r

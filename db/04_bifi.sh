@@ -27,22 +27,56 @@ fi
 
 # En el SQL de abajo:  :'variable' = valor entre comillas (texto)   :"variable" = nombre (base o usuario)
 
+# ------------------------------------------------------------------ 0. bifi creada antes con colación libc
+# Las versiones anteriores creaban la base con colación libc (es_ES.UTF-8). Ahora es ICU (es-ES), y la
+# colación de una base no se puede cambiar después de crearla: hay que volver a crearla.
+# Solo se hace si la base está VACÍA (el panel aún guarda sus datos en JSON). Si tiene tablas, se avisa
+# y no se toca nada: habría que hacer copia, borrarla a mano y repetir este script.
+proveedor=$(psql -qtAX -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname postgres -v base="$BIFI_DB" <<'SQL'
+SELECT datlocprovider FROM pg_database WHERE datname = :'base';
+SQL
+)
+if [ "$proveedor" = c ]; then      # c = libc, i = icu
+    objetos=$(psql -qtAX -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$BIFI_DB" <<'SQL'
+SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+WHERE c.relkind IN ('r', 'p', 'v', 'm', 'S')
+  AND n.nspname NOT IN ('pg_catalog', 'information_schema') AND n.nspname NOT LIKE 'pg_toast%';
+SQL
+)
+    if [ "$objetos" = 0 ]; then
+        echo "04_bifi.sh: $BIFI_DB estaba con colación libc y vacía: se vuelve a crear con ICU (es-ES)"
+        psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname postgres -v base="$BIFI_DB" <<'SQL'
+SELECT format('DROP DATABASE %I WITH (FORCE)', :'base') \gexec
+SQL
+    else
+        echo "04_bifi.sh: AVISO: $BIFI_DB usa colación libc y tiene $objetos objetos: no se recrea (db/README.md, P7)" >&2
+    fi
+fi
+
 # ------------------------------------------------------------------ 1. Base y usuarios
 psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname postgres \
      -v base="$BIFI_DB" \
      -v usuario_panel="$BIFI_PANEL_USER" -v clave_panel="$BIFI_PANEL_PASSWORD" \
      -v usuario_resp="$BIFI_RESP_USER"   -v clave_resp="$BIFI_RESP_PASSWORD" <<'SQL'
 
--- P7 · La base en UTF-8 con colación española (es_ES.UTF-8 lo genera db/Dockerfile).
+-- P7 · La base en UTF-8 con colación ICU española (es-ES).
+-- LOCALE_PROVIDER icu: la ordenación la hace la librería ICU (igual en cualquier sistema operativo),
+-- no la libc del contenedor. LC_COLLATE/LC_CTYPE siguen siendo obligatorios para lo que no hace ICU
+-- (mensajes, clasificación de caracteres); es_ES.UTF-8 lo genera db/Dockerfile.
 -- Se parte de template0 porque template1 ya tiene otra colación y no se podría cambiar.
 -- CREATE DATABASE no admite "IF NOT EXISTS": el SELECT solo produce la orden si la base no existe,
 -- y \gexec la ejecuta. format('%I') pone el nombre como identificador de SQL.
 SELECT format('CREATE DATABASE %I
-                   TEMPLATE   template0
-                   ENCODING   ''UTF8''
-                   LC_COLLATE ''es_ES.UTF-8''
-                   LC_CTYPE   ''es_ES.UTF-8''', :'base')
+                   TEMPLATE        template0
+                   ENCODING        ''UTF8''
+                   LOCALE_PROVIDER icu
+                   ICU_LOCALE      ''es-ES''
+                   LC_COLLATE      ''es_ES.UTF-8''
+                   LC_CTYPE        ''es_ES.UTF-8''', :'base')
 WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = :'base') \gexec
+
+-- P7 · Zona horaria de la propia base (además de timezone en postgresql.conf, que vale para todo el servidor).
+ALTER DATABASE :"base" SET timezone = 'Europe/Madrid';
 
 -- Usuarios: se crean si no existen.
 SELECT format('CREATE ROLE %I LOGIN', :'usuario_panel')
