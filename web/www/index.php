@@ -1,7 +1,7 @@
 <?php
 /* ============================================================
    Web pública Sede Huesca · Gestión de inventario (PostgreSQL)
-   Crear, editar y borrar registros sin recargar la página (fetch).
+   Crear y editar registros sin recargar la página (fetch).
    Si JavaScript no está disponible, el formulario de alta sigue funcionando.
    ============================================================ */
 
@@ -50,7 +50,7 @@ $rf = @pg_query($conn, "SELECT 1 FROM information_schema.columns WHERE table_nam
 $tieneFecha = $rf && pg_num_rows($rf) > 0;
 $extra = $tieneFecha ? ", to_char(creado_en, 'DD/MM HH24:MI') AS fecha, (creado_en::date = current_date) AS hoy" : '';
 
-/* ---------- Altas, ediciones y borrados ---------- */
+/* ---------- Altas y ediciones ---------- */
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $ajax = ($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '') === 'fetch';
     if (!hash_equals($_SESSION['t'], (string)($_POST['t'] ?? ''))) {
@@ -77,13 +77,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $res = @pg_query_params($conn, 'UPDATE inventario SET nombre = $1, descripcion = $2 WHERE id = $3 RETURNING id, nombre, descripcion' . $extra, [$nombre, $desc, $id]);
             if (!$res) $error = 'No se pudo guardar el cambio.';
             elseif (($fila = pg_fetch_assoc($res)) === false) $error = 'El registro ya no existe.';
-        } elseif ($a === 'borrar' && $id > 0) {
-            $res = @pg_query_params($conn, 'DELETE FROM inventario WHERE id = $1', [$id]);
-            if (!$res) {
-                $error = stripos(pg_last_error($conn), 'permission denied') !== false
-                    ? 'La base de datos no permite borrar a este usuario (falta el permiso DELETE sobre inventario).'
-                    : 'No se pudo borrar el registro.';
-            } elseif (pg_affected_rows($res) === 0) $error = 'El registro ya no existe.';
         } else $error = 'Acción no válida.';
     }
 
@@ -134,8 +127,6 @@ mark{background:rgba(251,191,36,.28);color:inherit;border-radius:3px;padding:0 1
 .top .side{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 .chip{display:inline-flex;align-items:center;gap:8px;padding:6px 13px;border-radius:999px;font-size:.8rem;font-weight:600;background:rgba(52,211,153,.12);color:var(--mint);border:1px solid rgba(52,211,153,.3)}
 .chip i{width:8px;height:8px;border-radius:50%;background:currentColor;box-shadow:0 0 8px currentColor}
-.link{color:var(--ink);text-decoration:none;font-weight:500;padding:7px 14px;border-radius:10px;border:1px solid var(--line);background:rgba(16,26,56,.6);transition:background .15s,color .15s,border-color .15s}
-.link:hover{background:var(--cyan);color:#04101f;border-color:var(--cyan)}
 
 /* Indicadores */
 .kpis{display:grid;grid-template-columns:1fr 1.5fr 1fr;gap:14px;margin-bottom:18px}
@@ -163,9 +154,6 @@ input:focus,select:focus{border-color:var(--cyan);outline:none;box-shadow:0 0 0 
 .b.main:hover{background:#7dd3fc;color:#04101f}
 .b.ok{background:var(--cyan);border-color:var(--cyan);color:#04101f}
 .b.ok:hover{background:#7dd3fc;color:#04101f}
-.b.danger:hover{border-color:var(--coral);color:var(--coral)}
-.b.sure{background:var(--coral);border-color:var(--coral);color:#1d0309}
-.b.sure:hover{background:#fda4af;color:#1d0309}
 .b:disabled{opacity:.5;cursor:wait}
 .err{color:var(--coral);font-size:.82rem;margin-top:10px;min-height:1.2em}
 @media(max-width:760px){.alta{grid-template-columns:1fr}.b.main{width:100%}}
@@ -180,8 +168,6 @@ input:focus,select:focus{border-color:var(--cyan);outline:none;box-shadow:0 0 0 
 .it:hover{border-color:var(--line2)}
 .it.nuevo{animation:nuevo .7s ease-out}
 @keyframes nuevo{from{background:rgba(56,189,248,.25);transform:translateY(-8px);opacity:0}to{background:rgba(6,11,28,.45);transform:none;opacity:1}}
-.it.saliendo{opacity:0;transform:translateX(26px)}
-.it.confirm{border-color:rgba(251,113,133,.5);background:rgba(251,113,133,.07)}
 .av{width:42px;height:42px;display:grid;place-items:center;border-radius:12px;font-size:1.25rem;border:1px solid}
 .main-col{min-width:0}
 .main-col b{display:block;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -189,7 +175,6 @@ input:focus,select:focus{border-color:var(--cyan);outline:none;box-shadow:0 0 0 
 .main-col span.vacia{color:var(--faint);font-style:italic}
 .meta{color:var(--faint);font-size:.74rem;margin-top:2px}
 .acts{display:flex;gap:8px;align-items:center}
-.acts .q{color:var(--coral);font-size:.84rem;font-weight:500;margin-right:4px}
 .fields{display:grid;grid-template-columns:1fr 1.6fr;gap:8px;min-width:0}
 .it.editing{border-color:var(--cyan);background:rgba(56,189,248,.06)}
 @media(max-width:700px){.it{grid-template-columns:auto 1fr}.acts{grid-column:1/-1;justify-content:flex-end;flex-wrap:wrap}.fields{grid-template-columns:1fr}}
@@ -213,11 +198,10 @@ input:focus,select:focus{border-color:var(--cyan);outline:none;box-shadow:0 0 0 
 
   <header class="top">
     <h1>Inventario Sede Huesca
-      <small>Añade, edita y borra los elementos de la sede. Todo se guarda al momento en PostgreSQL.</small>
+      <small>Añade y edita los elementos de la sede. Todo se guarda al momento en PostgreSQL.</small>
     </h1>
     <div class="side">
       <span class="chip"><i></i><?= e($version) ?> conectado</span>
-      <a class="link" href="http://intranet.huesca.empresa.lan">Ir a la intranet</a>
     </div>
   </header>
 
@@ -267,7 +251,7 @@ let DATA = <?= json_encode($rows, $flags) ?>.map(norm);
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const S = {q:'', orden:'rec', limite:10, edit:null, confirm:null, flash:null, busy:false};
+const S = {q:'', orden:'rec', limite:10, edit:null, flash:null, busy:false};
 
 /* ---------- API ---------- */
 async function api(accion, campos) {
@@ -310,13 +294,11 @@ function filtrados() {
 }
 function item(r) {
   const h = hue(r.nombre), av = `style="background:hsl(${h} 55% 22%);border-color:hsl(${h} 55% 42%)"`;
-  const cls = 'it' + (S.edit === r.id ? ' editing' : '') + (S.confirm === r.id ? ' confirm' : '') + (S.flash === r.id ? ' nuevo' : '');
+  const cls = 'it' + (S.edit === r.id ? ' editing' : '') + (S.flash === r.id ? ' nuevo' : '');
   if (S.edit === r.id) return `<li class="${cls}" data-id="${r.id}"><span class="av" ${av}>${icono(r.nombre)}</span>
     <div class="fields"><input type="text" class="e-nombre" maxlength="100" value="${esc(r.nombre)}" aria-label="Nombre"><input type="text" class="e-desc" maxlength="500" value="${esc(r.descripcion)}" aria-label="Descripción"></div>
     <div class="acts"><button class="b ok" data-a="save">Guardar</button><button class="b" data-a="cancel">Cancelar</button></div></li>`;
-  const acts = S.confirm === r.id
-    ? `<span class="q">¿Borrar este registro?</span><button class="b sure" data-a="del">Sí, borrar</button><button class="b" data-a="nodel">Cancelar</button>`
-    : `<button class="b" data-a="edit">Editar</button><button class="b danger" data-a="ask">Borrar</button>`;
+  const acts = `<button class="b" data-a="edit">Editar</button>`;
   return `<li class="${cls}" data-id="${r.id}"><span class="av" ${av}>${icono(r.nombre)}</span>
     <div class="main-col"><b>${hl(r.nombre)}</b>${r.descripcion ? `<span>${hl(r.descripcion)}</span>` : '<span class="vacia">Sin descripción</span>'}
     <div class="meta num">#${r.id}${r.fecha ? ' · ' + esc(r.fecha) : ''}</div></div><div class="acts">${acts}</div></li>`;
@@ -348,13 +330,13 @@ $('#form-alta').addEventListener('submit', async ev => {
   try {
     const j = await api('crear', {nombre, descripcion:desc});
     const fila = norm(j.fila); DATA.unshift(fila);
-    S.q = ''; $('#q').value = ''; S.orden = 'rec'; $('#orden').value = 'rec'; S.edit = S.confirm = null; S.flash = fila.id;
+    S.q = ''; $('#q').value = ''; S.orden = 'rec'; $('#orden').value = 'rec'; S.edit = null; S.flash = fila.id;
     render(); ev.target.reset(); $('#a-nombre').focus(); toast('Añadido: ' + fila.nombre);
   } catch (e) { err.textContent = e.message; }
   finally { S.busy = false; btn.disabled = false; }
 });
 
-$('#q').addEventListener('input', e => { S.q = e.target.value.trim(); S.limite = 10; S.edit = S.confirm = null; render(); });
+$('#q').addEventListener('input', e => { S.q = e.target.value.trim(); S.limite = 10; S.edit = null; render(); });
 $('#orden').addEventListener('change', e => { S.orden = e.target.value; render(); });
 
 async function guardar(li) {
@@ -368,25 +350,13 @@ async function guardar(li) {
   } catch (e) { toast(e.message, 'error'); li.querySelectorAll('button').forEach(b => b.disabled = false); }
   finally { S.busy = false; }
 }
-async function borrar(li) {
-  const id = +li.dataset.id; S.busy = true; li.querySelectorAll('button').forEach(b => b.disabled = true);
-  try {
-    await api('borrar', {id});
-    li.classList.add('saliendo');
-    setTimeout(() => { DATA = DATA.filter(r => r.id !== id); S.confirm = null; render(); toast('Registro borrado'); }, 300);
-  } catch (e) { S.confirm = null; render(); toast(e.message, 'error'); }
-  finally { S.busy = false; }
-}
 
 document.addEventListener('click', ev => {
   const b = ev.target.closest('button[data-a]'); if (!b || S.busy) return;
   const li = b.closest('li'), a = b.dataset.a;
-  if (a === 'edit')   { S.edit = +li.dataset.id; S.confirm = null; render(); const i = $('.e-nombre'); i && (i.focus(), i.select()); }
+  if (a === 'edit')   { S.edit = +li.dataset.id; render(); const i = $('.e-nombre'); i && (i.focus(), i.select()); }
   else if (a === 'cancel') { S.edit = null; render(); }
   else if (a === 'save')   guardar(li);
-  else if (a === 'ask')    { S.confirm = +li.dataset.id; S.edit = null; render(); }
-  else if (a === 'nodel')  { S.confirm = null; render(); }
-  else if (a === 'del')    borrar(li);
   else if (a === 'more')   { S.limite += 10; render(); }
   else if (a === 'clear')  { S.q = ''; $('#q').value = ''; render(); }
 });
