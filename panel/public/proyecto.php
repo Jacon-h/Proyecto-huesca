@@ -38,7 +38,7 @@ cabecera($p['codigo'] . ' · ' . $p['titulo'], $u);
 // Solo para pintar: el consumo repartido por máquina (con los mismos usos que se enseñan en la tabla).
 $por_maquina = [];
 foreach ($usos as $uso) {
-    $por_maquina[$uso['maquina']] = ($por_maquina[$uso['maquina']] ?? 0) + $uso['nucleos'] * $uso['horas'];
+    $por_maquina[$uso['maquina']] = ($por_maquina[$uso['maquina']] ?? 0) + $uso['nucleos'] * (float) $uso['horas'];
 }
 arsort($por_maquina);
 $mayor = $por_maquina === [] ? 0 : max($por_maquina);
@@ -120,30 +120,9 @@ $mayor = $por_maquina === [] ? 0 : max($por_maquina);
       <td><?= e($uso['maquina']) ?></td>
       <td class="num"><?= (int) $uso['nucleos'] ?></td>
       <td class="num"><?= number_format((float) $uso['horas'], 1, ',', '.') ?></td>
-      <td class="num"><?= number_format($uso['nucleos'] * $uso['horas'], 1, ',', '.') ?></td>
+      <td class="num"><?= number_format($uso['nucleos'] * (float) $uso['horas'], 1, ',', '.') ?></td>
     </tr>
     <?php endforeach ?>
-  </select>
-  <button>Añadir al proyecto</button>
-</form>
-<?php endif ?>
-
-<h2><?= $u['perfil'] === 'investigador' ? 'Tu consumo' : 'Consumo' ?></h2>
-<table>
-  <tr><th>Fecha</th><th>Persona</th><th>Máquina</th><th>Núcleos</th><th>Horas</th><th>Núcleo-horas</th></tr>
-  <?php foreach ($usos as $uso): ?>
-  <tr>
-    <td><?= e($uso['fecha']) ?></td>
-    <td><?= e(nombre_de($uso['usuario'])) ?></td>
-    <td><?= e($uso['maquina']) ?></td>
-    <td class="num"><?= (int) $uso['nucleos'] ?></td>
-    <td class="num"><?= number_format((float) $uso['horas'], 1, ',', '.') ?></td>
-    <td class="num"><?= number_format($uso['nucleos'] * (float) $uso['horas'], 1, ',', '.') ?></td>
-  </tr>
-  <?php endforeach ?>
-</table>
-<p><strong>Total: <?= number_format($nh, 1, ',', '.') ?> núcleo-horas ·
-   estimación <?= number_format($coste, 2, ',', '.') ?> €</strong> (precios de ejemplo)</p>
     </tbody>
   </table>
   </div>

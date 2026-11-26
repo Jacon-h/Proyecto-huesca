@@ -10,11 +10,8 @@ cabecera('Proyectos', $u);
 if ($proyectos === []) {
     echo '<div class="vacio"><p>No tienes proyectos.</p></div>';
 } else {
-    // Solo para pintar: el consumo de cada proyecto (el mismo número de la tabla), su suma y su barra.
-    $consumos = [];
-    foreach ($proyectos as $i => $p) {
-        $consumos[$i] = nucleo_horas(usos_de($p['codigo']));
-    }
+    // Solo para pintar: el consumo de cada proyecto (ya viene sumado de la base), su total y su barra.
+    $consumos = array_column($proyectos, 'nucleo_horas');
     $total = array_sum($consumos);
     $maximo = max($consumos);
     $de_empresa = count(array_filter($proyectos, fn ($p) => ($p['tarifa'] ?? '') === 'empresa'));
@@ -38,8 +35,6 @@ if ($proyectos === []) {
     <td><a class="codigo" href="proyecto.php?codigo=<?= urlencode($p['codigo']) ?>"><?= e($p['codigo']) ?></a></td>
     <td><?= e($p['titulo']) ?></td>
     <td><?= e(nombre_de($p['responsable'])) ?></td>
-    <td><?= e(TARIFAS[$p['tarifa']] ?? $p['tarifa']) ?></td>
-    <td class="num"><?= number_format($p['nucleo_horas'], 1, ',', '.') ?></td>
     <td><span class="etiqueta etiqueta-<?= e($p['tarifa']) ?>"><?= e(TARIFAS[$p['tarifa']] ?? $p['tarifa']) ?></span></td>
     <td class="num" data-valor="<?= round($consumos[$i], 2) ?>">
       <span class="nh"><span class="progreso" style="--w:<?= $maximo > 0 ? round($consumos[$i] / $maximo * 100) : 0 ?>%"><i></i></span><span class="val"><?= number_format($consumos[$i], 1, ',', '.') ?></span></span>

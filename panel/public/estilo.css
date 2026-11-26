@@ -68,7 +68,14 @@ header.superior nav a {
 }
 header.superior nav a:hover { color: var(--tinta); background: var(--interior); }
 header.superior nav a.activa { color: var(--tinta); background: color-mix(in srgb, var(--marca) 16%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--marca) 40%, transparent); }
-header.superior nav a.salir { color: var(--error); }
+/* «Salir» es un botón dentro de un formulario (va por POST con su código CSRF), pero se ve como un enlace más */
+header.superior nav { align-items: center; }
+header.superior nav form { margin: 0; }
+header.superior nav button.salir {
+  color: var(--error); background: none; box-shadow: none; border: 0;
+  padding: .4rem .85rem; border-radius: 10px; font-weight: 500; cursor: pointer;
+}
+header.superior nav button.salir:hover { background: var(--interior); }
 .quien { margin-left: auto; display: inline-flex; align-items: center; gap: .6rem; }
 .quien-txt { display: grid; line-height: 1.2; }
 .quien-txt small { color: var(--suave); font-size: .76rem; }
@@ -197,8 +204,6 @@ button.peligro:hover { background: var(--error); border-color: var(--error); col
 
 /* Mensajes */
 .error { color: var(--error); }
-header nav { display: flex; flex-wrap: wrap; align-items: center; }
-button.enlace { background: none; padding: 0; color: inherit; text-decoration: underline; }
 span.error { font-size: .82rem; margin-top: -.45rem; }
 p.error { padding: .7rem 1rem; border-radius: 12px; background: color-mix(in srgb, var(--error) 10%, transparent); border: 1px solid color-mix(in srgb, var(--error) 35%, transparent); }
 .estado-ok { display: inline-flex; align-items: center; gap: .6rem; margin: 0 0 1rem; padding: .5rem 1rem; border-radius: 999px; color: var(--ok); background: color-mix(in srgb, var(--ok) 11%, transparent); border: 1px solid color-mix(in srgb, var(--ok) 32%, transparent); }

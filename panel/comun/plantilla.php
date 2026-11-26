@@ -81,14 +81,12 @@ function menu(array $u): string
 
     $html = '';
     foreach ($enlaces as $url => $texto) {
-        $clases = trim(($url === $actual ? 'activa ' : '') . ($url === 'logout.php' ? 'salir' : ''));
         $html .= '<a href="' . e($url) . '"'
-            . ($clases !== '' ? ' class="' . $clases . '"' : '')
-            . ($url === $actual ? ' aria-current="page"' : '')
+            . ($url === $actual ? ' class="activa" aria-current="page"' : '')
             . '>' . e($texto) . '</a> ';
     }
     return $html . '<form method="post" action="logout.php" class="en-linea">' . campo_csrf()
-         . '<button class="enlace">Salir</button></form>';
+         . '<button class="enlace salir">Salir</button></form>';
 }
 
 function pie(): void
