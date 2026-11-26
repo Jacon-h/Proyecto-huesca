@@ -384,17 +384,19 @@ Actualizamos la documentación final con los apartados de LDAP, Active Directory
 
 ## 23/11/2026
 
-
+Repetimos las pruebas de aceptación del panel del BIFI con probar-panel.sh: login y cambio de sesión, perfiles y menú, acceso a proyectos ajenos (403 y 404), gestión de miembros, alta de proyectos solo para el CESAR, salida escapada (XSS) y cierre de sesión. Todo pasó. Anotamos que habría que repetirlas cuando los datos pasaran de JSON a PostgreSQL.
 
 
 ## 24/11/2026
 
-Explicación y presentación de como vamos y como funciona el proyecto de bifi a Alejandro, mejora de interfaz de la intranet y la web publica debido a peticiones del profesorado tras ver como llevábamos el proyecto.
+Explicación y presentación de como vamos y como funciona el proyecto de bifi a Alejandro, mostrando el panel con sus perfiles y el resto de servicios de la sede.
+
+Mejora de interfaz de la intranet y la web publica debido a peticiones del profesorado tras ver como llevábamos el proyecto. En la intranet, estado de los siete servicios y métricas del servidor y de cada contenedor con actualización automática. En la web pública, buscador, indicadores y mejoras de accesibilidad. Repetimos web/probar.sh para confirmar que seguía todo respondiendo bien.
 
 
 ## 25/11/2026
 
-Realización de exámenes de ASO y sostenibilidad. Arreglos en la base de datos de bifi para la presentación de mañana y puesta a punto del proyecto para que todo salga bien, repaso de como esta montado todo.
+Realización de exámenes de ASO y sostenibilidad. Arreglos en la base de datos de bifi para la presentación de mañana y puesta a punto del proyecto para que todo salga bien, repaso de como esta montado todo: datos de ejemplo del panel, permisos de la base, docker ps y instalar.sh verificar.
 
 
 ## 26/11/2026
