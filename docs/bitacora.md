@@ -382,6 +382,20 @@ Fusionamos las ramas de trabajo de cada área en una sola (`main`) y resolvimos 
 
 Actualizamos la documentación final con los apartados de LDAP, Active Directory, panel del BIFI y acceso externo a PostgreSQL, y revisamos el diagrama de red y las direcciones para que coincidan con `sede.env` (red interna `10.2.0.0/24`, servidor en `10.2.0.1` y DNS secundario en `10.2.0.2`). Repasamos el cuaderno de sesión contra los registros y las capturas, y pusimos al día los estados de los checklists.
 
+## 23/11/2026
+
+
+
+
+## 24/11/2026
+
+Explicación y presentación de como vamos y como funciona el proyecto de bifi a Alejandro, mejora de interfaz de la intranet y la web publica debido a peticiones del profesorado tras ver como llevábamos el proyecto.
+
+
+## 25/11/2026
+
+Realización de exámenes de ASO y sostenibilidad. Arreglos en la base de datos de bifi para la presentación de mañana y puesta a punto del proyecto para que todo salga bien, repaso de como esta montado todo.
+
 
 ## 26/11/2026
 
@@ -390,3 +404,4 @@ Pasamos los datos del panel del BIFI de los ficheros JSON a PostgreSQL. En la ba
 `instalar.sh` (fase `bd`) carga los JSON de `panel/datos-ejemplo/` la primera vez, en una transacción que comprueba que ha entrado todo antes de confirmar. Después el panel ya no los usa y ni siquiera están dentro de su imagen. Quitamos el volumen `datos-panel`.
 
 En el código del panel, todas las consultas son preparadas (`consultar()` en `comun/bd.php`). Añadimos el código CSRF al login y convertimos «Salir» en un formulario POST. Los errores de la base van al registro y no al navegador (`php.ini` de producción y un manejador en `arranque.php`). Juntamos `panel/pruebas.md` dentro de `panel/readme.md` y pusimos en el `README.md` de la raíz un índice de toda la documentación. Falta repetir las pruebas en la VM.
+
