@@ -26,9 +26,10 @@ cabecera('Entrar');
 <form method="post" class="tarjeta">
   <?= campo_csrf() ?>
   <?php if ($error !== ''): ?><p class="error"><?= e($error) ?></p><?php endif ?>
-  <label>Usuario <input name="usuario" value="<?= e($usuario) ?>" required autofocus></label>
-  <label>Contraseña <input name="clave" type="password" required></label>
+  <label>Usuario <input name="usuario" value="<?= e($usuario) ?>" autocomplete="username" required autofocus></label>
+  <label>Contraseña <input name="clave" type="password" autocomplete="current-password" required></label>
   <button>Entrar</button>
 </form>
 <?php
 pie();
+
