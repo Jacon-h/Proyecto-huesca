@@ -31,11 +31,15 @@ if ($error !== '') {
     echo '<p class="error">El panel no puede entrar en la base: ' . e($error) . '</p>';
 } else {
     ?>
-<table>
+<p class="estado-ok"><span class="punto"></span> Conectado a <strong><?= e((string) $estado['base']) ?></strong> como <strong><?= e((string) $estado['usuario']) ?></strong></p>
+<div class="tabla-wrap">
+<table class="claves">
   <?php foreach ($etiquetas as $campo => $texto): ?>
   <tr><th><?= e($texto) ?></th><td><?= e((string) $estado[$campo]) ?></td></tr>
   <?php endforeach ?>
 </table>
+</div>
     <?php
 }
 pie();
+
