@@ -36,7 +36,8 @@ Lo que **no** sale de `.env`, a propósito:
 | `01_esquema.sql` | Tabla `inventario` de la web (base `DB_NAME`). |
 | `02_datos.sql` | Sus 20 filas. |
 | `03_usuario_web.sh` | Usuario de la web (`DB_USER`): leer, insertar y editar `inventario`, pero no borrar. |
-| `04_bifi.sh` | Base `bifi` (UTF-8, colación ICU `es-ES`, zona `Europe/Madrid`), usuarios `panel` y `resp_demo`, sus límites y permisos. Idempotente. Si encuentra una `bifi` antigua con colación libc y **vacía**, la vuelve a crear con ICU. |
+| `04_bifi.sh` | Base `bifi` (UTF-8, colación ICU `es-ES`, zona `Europe/Madrid`), tablas del panel, usuarios `panel` y `resp_demo`, sus límites y permisos. Idempotente. Si encuentra una `bifi` antigua con colación libc y **vacía**, la vuelve a crear con ICU. |
+| `panel/datos-iniciales.sql` | Primera carga de las tablas del panel desde `panel/datos-ejemplo/*.json`. La lanza `instalar.sh` (fase `bd`); está en una subcarpeta para que la imagen no la ejecute sola. |
 | `pruebas/probar.sh` | Pruebas P1, P2, P4–P8 y qué IP ve el gestor. `sudo ./db/pruebas/probar.sh parada` añade la de `stop_grace_period`. |
 | `cliente/configurar-cliente.sh` | Crea `~/.pg_service.conf` y `~/.pgpass` (600) para `psql service=bifi` en el equipo de quien lo lanza. Admite la base y el usuario como argumentos. |
 
@@ -54,6 +55,41 @@ NOCREATEROLE`). Por defecto PostgreSQL deja conectar a cualquier usuario a cualq
 `CONNECT`); `04_bifi.sh` lo quita y lo da solo a quien le toca. Por eso `pg_hba.conf` y los permisos se
 complementan: aunque una línea de `pg_hba.conf` deje pasar a alguien, si no tiene `CONNECT` sobre la base,
 no entra (`User does not have CONNECT privilege`).
+
+## Tablas del panel
+
+El panel del BIFI guarda todos sus datos en `bifi`. Las tablas las crea `04_bifi.sh` (apartado 3) como
+`postgres`, que queda como dueño; el usuario `panel` solo trabaja con filas.
+
+| Tabla | Columnas | Permisos de `panel` |
+|---|---|---|
+| `usuarios` | `usuario` (PK), `nombre`, `perfil` (`investigador`, `responsable`, `cesar`), `hash` | `SELECT` |
+| `proyectos` | `codigo` (PK, `AAA-0000`), `titulo` (5–120), `responsable` → `usuarios`, `tarifa` (`academica`, `empresa`) | `SELECT`, `INSERT` |
+| `miembros` | `proyecto` → `proyectos`, `usuario` → `usuarios` (PK de las dos) | `SELECT`, `INSERT`, `DELETE` |
+| `usos` | `id`, `proyecto`, `usuario`, `maquina`, `nucleos` (> 0), `horas` (> 0), `fecha` | `SELECT` |
+
+Cómo se aplica el mínimo privilegio:
+- Primero `REVOKE ALL` sobre todas las tablas y después solo lo que usa alguna página del panel. Si en una
+  versión anterior hubo más permisos, no se quedan.
+- En el esquema `public`, `PUBLIC` no tiene nada (`REVOKE ALL ON SCHEMA public FROM PUBLIC`) y `panel`
+  solo tiene `USAGE`: no puede crear tablas. Como no es dueño de ninguna, tampoco puede cambiarlas ni
+  borrarlas (`must be owner of table`).
+- `resp_demo` no tiene ni `USAGE`: desde el aula entra en `bifi` (P3–P6), pero no lee ninguna tabla.
+- Las cuentas, los consumos y los cambios de título solo los puede hacer el administrador. Si alguien
+  consiguiera las credenciales del panel, no podría cambiar contraseñas, inventarse consumos ni vaciar tablas.
+
+Para verlo: `docker exec -u postgres mi-postgres psql -d bifi -c '\dp'`.
+
+**Primera carga.** En cada instalación, después de `04_bifi.sh`, `instalar.sh` pasa el contenido de
+`panel/datos-ejemplo/*.json` a `panel/datos-iniciales.sql` como variables de `psql`, y lo ejecuta como
+`postgres` por el socket. El script:
+1. solo carga si `usuarios` está vacía (si no, volverían los miembros que alguien haya quitado desde el panel);
+2. convierte los JSON en filas con `jsonb_to_recordset`, todo en una transacción;
+3. antes del `COMMIT` comprueba que cada registro de los JSON está en la base; si falta alguno, `ROLLBACK`
+   y la instalación se para.
+
+El panel no vuelve a leer esos JSON (ni siquiera están dentro de su imagen). Detalle en
+[`panel/readme.md`](../panel/readme.md#dónde-están-los-datos).
 
 ## P7 · Codificación, colación ICU, zona horaria y PUBLIC
 
@@ -77,7 +113,7 @@ no entra (`User does not have CONNECT privilege`).
 
 1. **Primer arranque (volumen vacío).** La imagen crea el clúster, el administrador y la base `DB_NAME`, y
    ejecuta por orden alfabético los `.sql` y `.sh` de esta carpeta: `01` → `02` → `03` → `04`. Las
-   subcarpetas (`conf/`, `cliente/`, `pruebas/`) y el resto de ficheros los ignora.
+   subcarpetas (`conf/`, `cliente/`, `panel/`, `pruebas/`) y el resto de ficheros los ignora.
    **Cuidado:** cualquier `.sh` que se deje suelto en la raíz de `db/` también se ejecuta al crear la base.
    Por eso las pruebas están en `db/pruebas/` y no aquí.
 2. **Arranques siguientes.** Ya hay datos: no se ejecuta nada de lo anterior.
@@ -85,8 +121,10 @@ no entra (`User does not have CONNECT privilege`).
 
        docker exec -u postgres mi-postgres bash /docker-entrypoint-initdb.d/04_bifi.sh
 
-   Crea lo que falte y vuelve a fijar contraseñas, límites y permisos. Si cambias una contraseña de `bifi`
-   en `.env`, se aplica así. Después instala `psql` en el servidor y prepara `psql service=bifi` (ver P8).
+   Crea lo que falte (también las tablas del panel) y vuelve a fijar contraseñas, límites y permisos. Si
+   cambias una contraseña de `bifi` en `.env`, se aplica así. Después carga los datos del panel si la base
+   aún no los tiene (`panel/datos-iniciales.sql`), instala `psql` en el servidor y prepara
+   `psql service=bifi` (ver P8).
 
 ## postgresql.conf, parámetro a parámetro
 
@@ -251,6 +289,7 @@ verificar` también lo lanza.
 | Config. de `db/conf/` | `docker exec -u postgres mi-postgres psql -c "SHOW config_file" -c "SHOW hba_file"` | `/etc/postgresql/postgresql.conf` y `/etc/postgresql/pg_hba.conf` |
 | La web sigue | `curl -s -H "Host: www.huesca.empresa.lan" http://localhost/estado.php` | `ESTADO: OK` y `Filas en inventario: 20` |
 | P1 | `docker exec panel php /var/www/panel/pruebas/estado-bifi.php` (o «Estado de la base» en el panel, como `cesar`) | `usuario: panel`, `base: bifi` |
+| Tablas del panel | `docker exec -e PGPASSWORD=… mi-postgres psql -h db -U panel -d bifi -c "DELETE FROM proyectos WHERE false"` (y `UPDATE usuarios…`, `CREATE TABLE…`, `DROP TABLE…`) | `permission denied` / `must be owner`; `SELECT` sí funciona |
 | P2 | `docker exec -e PGPASSWORD=… mi-postgres psql -h db -U postgres` | `pg_hba.conf rejects connection for host …, user "postgres"` |
 | P3 | Desde **otro equipo del aula**: `psql -h 192.168.6.105 -U resp_demo -d bifi -c "SELECT current_user, inet_client_addr()"` | `resp_demo` y la IP de ese equipo |
 | P4 | Desde ese mismo equipo: `psql -h 192.168.6.105 -U panel -d bifi` y `-U resp_demo -d <DB_NAME>` | `pg_hba.conf rejects connection` |
@@ -269,9 +308,11 @@ Comprobaciones de la web (siguen igual):
 
 ## Volver a empezar desde cero
 
-`01`, `02` y `03` no se repiten si el volumen ya existe. Para recrear la base (borra los datos; vuelven
-las 20 filas, `bifi` vacía y los usuarios):
+`01`, `02` y `03` no se repiten si el volumen ya existe. Para recrear todo (borra los datos; vuelven las 20
+filas del inventario, los usuarios y `bifi` con los datos de ejemplo del panel):
 
     sudo ./instalar.sh reiniciar bd --si
 
-No uses `docker compose down -v`: borraría también los datos de LDAP y del panel.
+Para volver a los datos de ejemplo solo en el panel, sin tocar la web: [`panel/readme.md`](../panel/readme.md#mantenimiento).
+
+No uses `docker compose down -v`: borraría también los datos de LDAP.

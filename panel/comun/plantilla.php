@@ -31,6 +31,9 @@ function cabecera(string $titulo, ?array $u = null): void
 /**
  * (A5) El menú cambia según el perfil que hay en la sesión: «Nuevo proyecto» y «Estado de la base»,
  * solo el CESAR. Ocultar un enlace no protege nada: cada página comprueba el perfil (exigir_perfil).
+ *
+ * «Salir» es un botón de formulario y no un enlace: cerrar la sesión cambia algo, y con un enlace
+ * cualquier otra web podría hacerlo con un simple <img src=".../logout.php">.
  */
 function menu(array $u): string
 {
@@ -39,13 +42,13 @@ function menu(array $u): string
         $enlaces['proyecto-nuevo.php'] = 'Nuevo proyecto';
         $enlaces['estado-bd.php'] = 'Estado de la base';
     }
-    $enlaces['logout.php'] = 'Salir';
 
     $html = '';
     foreach ($enlaces as $url => $texto) {
         $html .= '<a href="' . e($url) . '">' . e($texto) . '</a> ';
     }
-    return $html;
+    return $html . '<form method="post" action="logout.php" class="en-linea">' . campo_csrf()
+         . '<button class="enlace">Salir</button></form>';
 }
 
 function pie(): void

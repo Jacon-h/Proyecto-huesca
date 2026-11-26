@@ -10,6 +10,9 @@ if (usuario_actual() !== null) {
 $error = '';
 $usuario = '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    // También en el login: sin esto, otra web podría meter a la víctima en una cuenta del atacante
+    // (login CSRF) y todo lo que hiciera después quedaría en esa cuenta.
+    exigir_csrf();
     $usuario = trim((string) ($_POST['usuario'] ?? ''));
     $clave = (string) ($_POST['clave'] ?? '');
     if (entrar($usuario, $clave)) {
@@ -21,6 +24,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 cabecera('Entrar');
 ?>
 <form method="post" class="tarjeta">
+  <?= campo_csrf() ?>
   <?php if ($error !== ''): ?><p class="error"><?= e($error) ?></p><?php endif ?>
   <label>Usuario <input name="usuario" value="<?= e($usuario) ?>" required autofocus></label>
   <label>Contraseña <input name="clave" type="password" required></label>

@@ -1,0 +1,4 @@
+# Los JSON de partida solo los lee instalar.sh para cargarlos en PostgreSQL. Dentro de la imagen no
+# pintan nada y así no hay forma de que el panel vuelva a usarlos.
+datos-ejemplo/
+*.md

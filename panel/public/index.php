@@ -19,7 +19,7 @@ if ($proyectos === []) {
     <td><?= e($p['titulo']) ?></td>
     <td><?= e(nombre_de($p['responsable'])) ?></td>
     <td><?= e(TARIFAS[$p['tarifa']] ?? $p['tarifa']) ?></td>
-    <td class="num"><?= number_format(nucleo_horas(usos_de($p['codigo'])), 1, ',', '.') ?></td>
+    <td class="num"><?= number_format($p['nucleo_horas'], 1, ',', '.') ?></td>
   </tr>
   <?php endforeach ?>
 </table>

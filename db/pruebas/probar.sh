@@ -72,6 +72,33 @@ if echo "$r" | grep -q "permission denied for database"; then bien "$BIFI_PANEL_
 r=$(docker exec -e PGPASSWORD="$DB_PASSWORD" mi-postgres psql -h db -U "$DB_USER" -d "$BIFI_DB" -tAc 'SELECT 1' 2>&1)
 if echo "$r" | grep -q "permission denied for database"; then bien "$DB_USER (web) no puede abrir la base del panel ($BIFI_DB)"; else mal "$DB_USER en $BIFI_DB: $r"; fi
 
+# --- Tablas del panel · Mínimo privilegio -----------------------------------------------------
+# El panel solo tiene lo que usa cada página (db/04_bifi.sh, apartado 3). Las órdenes prohibidas llevan
+# WHERE false: PostgreSQL comprueba los permisos antes de ejecutar, así que se ve el rechazo sin tocar
+# ninguna fila aunque alguna se colara.
+titulo "Tablas del panel · el usuario $BIFI_PANEL_USER solo tiene lo que usa"
+panel_sql() {                    # panel_sql <sql>  (desde Compose, como el panel de verdad)
+    docker exec -e PGPASSWORD="$BIFI_PANEL_PASSWORD" mi-postgres \
+        psql -h db -U "$BIFI_PANEL_USER" -d "$BIFI_DB" -tAc "$1" 2>&1
+}
+r=$(admin_sql "$BIFI_DB" "SELECT (SELECT count(*) FROM usuarios) || ' usuarios, ' || (SELECT count(*) FROM proyectos) || ' proyectos'")
+if echo "$r" | grep -qE '^[1-9][0-9]* usuarios, [1-9][0-9]* proyectos$'; then bien "datos del panel cargados: $r"; else mal "datos del panel: '$r' (sudo ./instalar.sh bd)"; fi
+r=$(panel_sql "SELECT count(*) FROM usuarios")
+if echo "$r" | grep -qE '^[0-9]+$'; then bien "$BIFI_PANEL_USER lee usuarios ($r filas)"; else mal "$BIFI_PANEL_USER no lee usuarios: $r"; fi
+for orden in "UPDATE usuarios SET hash = hash WHERE false" \
+             "INSERT INTO usuarios SELECT * FROM usuarios WHERE false" \
+             "DELETE FROM proyectos WHERE false" \
+             "UPDATE proyectos SET titulo = titulo WHERE false" \
+             "INSERT INTO usos (proyecto, usuario, maquina, nucleos, horas, fecha) SELECT proyecto, usuario, maquina, nucleos, horas, fecha FROM usos WHERE false" \
+             "CREATE TABLE intrusa (x int)" \
+             "DROP TABLE miembros"; do
+    r=$(panel_sql "$orden")
+    if echo "$r" | grep -qE "permission denied|must be owner"; then bien "rechazado: ${orden%% WHERE*}"
+    else mal "$BIFI_PANEL_USER puede: $orden ($r)"; fi
+done
+r=$(servidor_sql 127.0.0.1 "$BIFI_RESP_USER" "$BIFI_RESP_PASSWORD" 'SELECT count(*) FROM public.usuarios')
+if echo "$r" | grep -q "permission denied"; then bien "$BIFI_RESP_USER no lee las tablas del panel"; else mal "$BIFI_RESP_USER lee usuarios: $r"; fi
+
 # --- P2 · El administrador no entra por red ----------------------------------------------------
 titulo "P2 · El administrador no entra por red"
 r=$(docker exec -e PGPASSWORD="$POSTGRES_PASSWORD" mi-postgres psql -h db -U postgres -d postgres -tAc 'SELECT 1' 2>&1)

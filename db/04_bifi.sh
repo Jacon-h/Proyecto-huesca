@@ -1,5 +1,5 @@
 #!/bin/bash
-# db/04_bifi.sh · Base del panel del BIFI y sus usuarios de red (ASGBD RA2)
+# db/04_bifi.sh · Base del panel del BIFI, sus tablas y sus usuarios de red (ASGBD RA2)
 #
 # Cuándo se ejecuta:
 #   1. PostgreSQL lo lanza solo al crear el volumen por primera vez (después de 01, 02 y 03).
@@ -30,8 +30,8 @@ fi
 # ------------------------------------------------------------------ 0. bifi creada antes con colación libc
 # Las versiones anteriores creaban la base con colación libc (es_ES.UTF-8). Ahora es ICU (es-ES), y la
 # colación de una base no se puede cambiar después de crearla: hay que volver a crearla.
-# Solo se hace si la base está VACÍA (el panel aún guarda sus datos en JSON). Si tiene tablas, se avisa
-# y no se toca nada: habría que hacer copia, borrarla a mano y repetir este script.
+# Solo se hace si la base está VACÍA. Si tiene tablas (las del panel, por ejemplo), se avisa y no se toca
+# nada: habría que hacer copia, borrarla a mano y repetir este script.
 proveedor=$(psql -qtAX -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname postgres -v base="$BIFI_DB" <<'SQL'
 SELECT datlocprovider FROM pg_database WHERE datname = :'base';
 SQL
@@ -117,4 +117,68 @@ REVOKE ALL ON SCHEMA public                FROM :"usuario_resp";
 ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON TABLES FROM :"usuario_resp";
 SQL
 
-echo "04_bifi.sh: base $BIFI_DB y usuarios $BIFI_PANEL_USER y $BIFI_RESP_USER listos"
+# ------------------------------------------------------------------ 3. Tablas del panel y sus permisos
+# Las crea el administrador, que queda como dueño. El panel solo trabaja con filas: no puede crear, cambiar
+# ni borrar tablas, y en cada una tiene únicamente lo que usa alguna página:
+#   usuarios   SELECT                   el login y los nombres. Las cuentas se dan de alta desde aquí, no desde la web
+#   proyectos  SELECT, INSERT           listar y dar de alta. No hay edición ni baja de proyectos en el panel
+#   miembros   SELECT, INSERT, DELETE   añadir y quitar investigadores de un proyecto
+#   usos       SELECT                   el consumo lo registra el CESAR, el panel solo lo enseña
+# Si un día alguien se cuela en el panel, no puede cambiar contraseñas, inventarse consumos ni vaciar tablas.
+#
+# El responsable (resp_demo) entra con psql desde el aula para las pruebas de conexión (P3-P6) y no necesita
+# leer nada: se le quita incluso el acceso al esquema. Si más adelante tiene que consultar algo, mejor una
+# vista con lo suyo que un GRANT sobre las tablas.
+#
+# CREATE TABLE IF NOT EXISTS porque este script se repite en cada instalación. Si se cambia la definición
+# de una tabla que ya existe, aquí no se aplica: hay que hacer el ALTER TABLE a mano.
+psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$BIFI_DB" \
+     -v usuario_panel="$BIFI_PANEL_USER" -v usuario_resp="$BIFI_RESP_USER" <<'SQL'
+BEGIN;
+
+CREATE TABLE IF NOT EXISTS usuarios (
+    usuario varchar(32)  PRIMARY KEY CHECK (usuario ~ '^[a-z][a-z0-9_]*$'),
+    nombre  varchar(100) NOT NULL,
+    perfil  varchar(20)  NOT NULL CHECK (perfil IN ('investigador', 'responsable', 'cesar')),
+    hash    varchar(255) NOT NULL          -- password_hash() de PHP; nunca la contraseña
+);
+
+CREATE TABLE IF NOT EXISTS proyectos (
+    codigo      varchar(8)   PRIMARY KEY CHECK (codigo ~ '^[A-Z]{3}-[0-9]{4}$'),
+    titulo      varchar(120) NOT NULL CHECK (char_length(titulo) >= 5),
+    responsable varchar(32)  NOT NULL REFERENCES usuarios,
+    tarifa      varchar(20)  NOT NULL CHECK (tarifa IN ('academica', 'empresa'))
+);
+
+CREATE TABLE IF NOT EXISTS miembros (
+    proyecto varchar(8)  REFERENCES proyectos,
+    usuario  varchar(32) REFERENCES usuarios,
+    PRIMARY KEY (proyecto, usuario)
+);
+
+CREATE TABLE IF NOT EXISTS usos (
+    id       integer      GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    proyecto varchar(8)   NOT NULL REFERENCES proyectos,
+    usuario  varchar(32)  NOT NULL REFERENCES usuarios,
+    maquina  varchar(50)  NOT NULL,
+    nucleos  integer      NOT NULL CHECK (nucleos > 0),
+    horas    numeric(8,2) NOT NULL CHECK (horas > 0),
+    fecha    date         NOT NULL
+);
+CREATE INDEX IF NOT EXISTS usos_proyecto ON usos (proyecto);
+
+-- Desde PostgreSQL 15 PUBLIC ya no puede crear en el esquema public, pero sí usarlo. Se le quita todo y
+-- se le da USAGE solo al panel: así resp_demo no llega ni a los nombres de las tablas.
+REVOKE ALL   ON SCHEMA public FROM PUBLIC;
+GRANT  USAGE ON SCHEMA public TO :"usuario_panel";
+
+-- Primero se quita todo y luego se da lo justo: si en una versión anterior hubo más permisos, no se quedan.
+REVOKE ALL ON ALL TABLES IN SCHEMA public FROM :"usuario_panel", :"usuario_resp";
+GRANT SELECT                 ON usuarios, usos TO :"usuario_panel";
+GRANT SELECT, INSERT         ON proyectos      TO :"usuario_panel";
+GRANT SELECT, INSERT, DELETE ON miembros       TO :"usuario_panel";
+
+COMMIT;
+SQL
+
+echo "04_bifi.sh: base $BIFI_DB, tablas del panel y usuarios $BIFI_PANEL_USER y $BIFI_RESP_USER listos"

@@ -76,7 +76,7 @@ cabecera($p['codigo'] . ' · ' . $p['titulo'], $u);
     <td><?= e($uso['maquina']) ?></td>
     <td class="num"><?= (int) $uso['nucleos'] ?></td>
     <td class="num"><?= number_format((float) $uso['horas'], 1, ',', '.') ?></td>
-    <td class="num"><?= number_format($uso['nucleos'] * $uso['horas'], 1, ',', '.') ?></td>
+    <td class="num"><?= number_format($uso['nucleos'] * (float) $uso['horas'], 1, ',', '.') ?></td>
   </tr>
   <?php endforeach ?>
 </table>

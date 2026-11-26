@@ -3,14 +3,15 @@
 declare(strict_types=1);
 
 require __DIR__ . '/../comun/arranque.php';
-require __DIR__ . '/../comun/bd.php';
 
 $u = exigir_perfil(['cesar']);
 
+// Esta página es justo para diagnosticar la conexión, y solo la ve el CESAR: por eso aquí sí se enseña
+// el motivo del fallo, en vez de dejar que lo recoja el manejador general de arranque.php.
 $estado = null;
 $error = '';
 try {
-    $estado = estado_bifi(conectar_bifi());
+    $estado = estado_bifi(bd());
 } catch (PDOException $ex) {
     $error = $ex->getMessage();
 }

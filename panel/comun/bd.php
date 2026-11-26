@@ -1,13 +1,11 @@
 <?php
-// Conexión del panel con su base de PostgreSQL (ASGBD RA2, P1).
-// Por ahora el panel guarda sus datos en JSON; aquí solo se comprueba que entra en PostgreSQL desde
-// Compose con su propio usuario. La usan public/estado-bd.php y pruebas/estado-bifi.php.
+// Conexión del panel con su base de PostgreSQL (BIFI_DB). Todos los datos del panel están ahí.
 declare(strict_types=1);
 
 /**
  * Abre la conexión con los datos que compose.yaml pone en el entorno del contenedor:
  * BIFI_HOST (el servicio "db"), y BIFI_DB, BIFI_USER y BIFI_PASSWORD, que salen de .env.
- * Si falta alguno o la conexión falla, lanza PDOException con el motivo.
+ * En el código no hay ni una contraseña. Si falta alguna variable o la conexión falla, lanza PDOException.
  */
 function conectar_bifi(): PDO
 {
@@ -24,13 +22,33 @@ function conectar_bifi(): PDO
     return new PDO($dsn, $datos['BIFI_USER'], $datos['BIFI_PASSWORD'], [
         PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
         PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+        // Preparadas de verdad en el servidor: la consulta y los datos viajan por separado, así que un
+        // dato nunca se interpreta como SQL. Es el valor por defecto de pdo_pgsql; se deja escrito a propósito.
+        PDO::ATTR_EMULATE_PREPARES   => false,
     ]);
+}
+
+/** Una sola conexión por petición, abierta la primera vez que se necesita. */
+function bd(): PDO
+{
+    static $conexion = null;
+    return $conexion ??= conectar_bifi();
+}
+
+/**
+ * Todas las consultas del panel pasan por aquí: prepare() con la consulta fija y execute() con los datos.
+ * Los valores van siempre en $parametros (marcadores ?), nunca pegados al texto del SQL.
+ */
+function consultar(string $sql, array $parametros = []): PDOStatement
+{
+    $consulta = bd()->prepare($sql);
+    $consulta->execute($parametros);
+    return $consulta;
 }
 
 /**
  * Lo que dice el gestor de esta conexión: quién soy, en qué base, desde qué IP me ve (Maestro),
  * con qué codificación y colación (P7) y qué límites me aplica (P5, P6).
- * Es una consulta fija, sin datos del usuario: no necesita parámetros.
  */
 function estado_bifi(PDO $bd): array
 {
@@ -45,5 +63,7 @@ function estado_bifi(PDO $bd): array
                    r.rolconnlimit                            AS limite_conexiones
             FROM pg_database d, pg_roles r
             WHERE d.datname = current_database() AND r.rolname = current_user";
-    return $bd->query($sql)->fetch();
+    $consulta = $bd->prepare($sql);
+    $consulta->execute();
+    return $consulta->fetch();
 }

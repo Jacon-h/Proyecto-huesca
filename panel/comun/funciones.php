@@ -1,8 +1,6 @@
 <?php
-// Funciones generales del panel: salida segura y lectura y escritura de los datos.
+// Funciones generales del panel: salida segura, redirecciones y los valores fijos (perfiles, tarifas).
 declare(strict_types=1);
-
-const DATOS = __DIR__ . '/../datos';
 
 const PERFILES = [
     'investigador' => 'Investigador',
@@ -22,7 +20,7 @@ const PRECIO_NUCLEO_HORA = [
 ];
 
 /**
- * (A9) Escapa un texto para meterlo en HTML. Todo lo que viene del usuario o de los datos pasa por aquí.
+ * (A9) Escapa un texto para meterlo en HTML. Todo lo que viene del usuario o de la base pasa por aquí.
  * - ENT_QUOTES: escapa también ' y ", así vale dentro de atributos value="..." o value='...'.
  * - ENT_SUBSTITUTE: si llega UTF-8 roto, cambia los bytes malos por � en vez de devolver una cadena vacía.
  * Lo que sale: < > & " ' convertidos en &lt; &gt; &amp; &quot; &#039;. El navegador los pinta como texto.
@@ -30,26 +28,6 @@ const PRECIO_NUCLEO_HORA = [
 function e(?string $texto): string
 {
     return htmlspecialchars($texto ?? '', ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
-}
-
-/** Lee datos/<nombre>.json. Si no existe o está mal, devuelve una lista vacía. */
-function leer_datos(string $nombre): array
-{
-    $fichero = DATOS . "/$nombre.json";
-    if (!is_file($fichero)) {
-        return [];
-    }
-    $datos = json_decode((string) file_get_contents($fichero), true);
-    return is_array($datos) ? $datos : [];
-}
-
-/** Guarda datos/<nombre>.json, con bloqueo para que dos peticiones a la vez no se pisen. */
-function guardar_datos(string $nombre, array $datos): void
-{
-    $json = json_encode(array_values($datos), JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
-    if (file_put_contents(DATOS . "/$nombre.json", $json, LOCK_EX) === false) {
-        throw new RuntimeException("No se puede escribir datos/$nombre.json");
-    }
 }
 
 function redirigir(string $url): never

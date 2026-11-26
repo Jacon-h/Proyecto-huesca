@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/funciones.php';
+require_once __DIR__ . '/bd.php';
 
 /**
  * Hash de una contraseña al azar que nadie conoce. Se usa cuando el usuario no existe, para que
@@ -25,18 +26,15 @@ function iniciar_sesion(): void
     session_start();
 }
 
+/** El usuario con su hash, para el login. Fuera de entrar() no se usa: el hash no sale de aquí. */
 function buscar_usuario(string $usuario): ?array
 {
-    foreach (leer_datos('usuarios') as $u) {
-        if ($u['usuario'] === $usuario) {
-            return $u;
-        }
-    }
-    return null;
+    $fila = consultar('SELECT usuario, nombre, perfil, hash FROM usuarios WHERE usuario = ?', [$usuario])->fetch();
+    return $fila === false ? null : $fila;
 }
 
 /**
- * (A1) Comprueba usuario y contraseña contra datos/usuarios.json, que guarda el hash hecho con
+ * (A1) Comprueba usuario y contraseña contra la tabla usuarios, que guarda el hash hecho con
  * password_hash(), nunca la contraseña. Si son buenos, guarda en $_SESSION['usuario'] quién es y su
  * perfil y devuelve true.
  *
@@ -56,7 +54,9 @@ function entrar(string $usuario, string $clave): bool
     }
 
     // Id de sesión nuevo al entrar: así no vale uno que alguien hubiera fijado antes del login.
+    // El código CSRF también se renueva: el de la página de login lo ha visto alguien sin identificar.
     session_regenerate_id(true);
+    unset($_SESSION['csrf']);
     // (A3) En la sesión va quién es y su perfil, nunca el hash.
     $_SESSION['usuario'] = [
         'usuario' => $u['usuario'],

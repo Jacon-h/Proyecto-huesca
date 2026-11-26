@@ -87,11 +87,11 @@ Lanza todas las fases una detrás de otra. Tarda unos minutos y **no pide nada**
 | `gns3` | Instala el servidor GNS3, construye la imagen del DNS secundario (con la clave TSIG) e importa y arranca el proyecto de la red interna. |
 | `forgejo` | Prepara Forgejo y su SSH. Si existe `restauracion/forgejo-dump.zip`, restaura los datos de otro Forgejo. |
 | `web` | Genera `secretos/intranet.htpasswd` desde `.env`, construye las imágenes (`web`, `db`, `panel`) y levanta `mi-apache`, `mi-postgres`, `forgejo`, `ldap`, `lam` y `panel`. Al final lanza la fase `bd`. No borra datos de LDAP salvo con `REINICIAR_LDAP=1`. |
-| `bd` | Repite `db/04_bifi.sh` (base `bifi`, usuarios `panel` y `resp_demo`, límites y permisos; es repetible), instala `psql` en el servidor y deja `psql service=bifi` listo para quien lanzó `sudo` (`~/.pg_service.conf` y `~/.pgpass` en modo 600). |
+| `bd` | Repite `db/04_bifi.sh` (base `bifi`, tablas del panel, usuarios `panel` y `resp_demo`, límites y permisos; es repetible). La primera vez carga los datos de partida del panel desde `panel/datos-ejemplo/*.json` en una transacción (`db/panel/datos-iniciales.sql`); después ya no los vuelve a leer. Instala `psql` en el servidor y deja `psql service=bifi` listo para quien lanzó `sudo` (`~/.pg_service.conf` y `~/.pgpass` en modo 600). |
 | `ad` | Sincroniza OpenLDAP → Active Directory: confía en la CA de AD, instala los scripts de `sincronizacion/` y su temporizador, genera `/etc/huesca/`, comprueba LDAPS y `svc-sync`, y hace la primera sincronización. Antes hay que hacer a mano la parte de Windows (ver abajo). En la ejecución completa solo avisa si Windows no está listo; sola (`sudo ./instalar.sh ad`) marca FALLO. |
 | `sssd` | Hace que este servidor autentique a los usuarios contra OpenLDAP. |
 | `verificar` | Prueba red, contenedores, permisos de la base, SSH de Forgejo, DNS (incluido TSIG y recursión del aula), GNS3, las pruebas HTTP de `web/probar.sh` (también el panel) y las de la base de `db/pruebas/probar.sh` (ASGBD RA2). |
-| `reiniciar ldap\|bd --si` | **Solo a mano.** Borra los datos de LDAP o de la base y los crea de nuevo. Sin `--si` no hace nada. |
+| `reiniciar ldap\|bd --si` | **Solo a mano.** Borra los datos de LDAP o de PostgreSQL (la web y el panel) y los crea de nuevo con los datos iniciales. Sin `--si` no hace nada. |
 
 Una fase suelta se puede lanzar sola: `sudo ./instalar.sh <fase>` (por ejemplo `sudo ./instalar.sh dns`).
 El código de las fases largas está en `scripts/` (`gns3.sh`, `forgejo.sh`, `sssd.sh`, `ad.sh`).
@@ -164,14 +164,15 @@ Sin DNS configurado se puede probar con `curl -H "Host: www.huesca.empresa.lan" 
 - `frontal`: red normal de Compose; por ella se publican los puertos (`80`, `5432`, `8081`…).
 - `trasera`: red `internal` (sin salida a Internet ni puertos publicados). La base, la web y el panel están
   en las dos.
-- La web de la sede (`mi-apache`) usa `DB_USER` sobre `DB_NAME`; el panel usa `panel` sobre `bifi`.
+- La web de la sede (`mi-apache`) usa `DB_USER` sobre `DB_NAME`; el panel usa `panel` sobre `bifi`, donde
+  tiene todos sus datos (usuarios, proyectos, miembros y consumos) y solo los permisos que usa.
 
 ## Comprobar las prácticas
 
 | Práctica | Orden | Qué hace |
 |---|---|---|
 | ASGBD RA2 · La base abre a clientes de fuera | `sudo ./db/pruebas/probar.sh` (y `sudo ./db/pruebas/probar.sh parada`) | P1, P2, P4–P8, IPs que ve el gestor y `stop_grace_period`. P3 se hace desde otro equipo del aula: [`db/README.md`](db/README.md#pruebas). |
-| IAW RA5 · El panel con formularios, login y perfiles | `bash panel/pruebas/probar-panel.sh http://panel.huesca.empresa.lan` | A1–A10 con curl. Cómo enseñar cada una a mano: [`panel/pruebas.md`](panel/pruebas.md). |
+| IAW RA5 · El panel con formularios, login y perfiles | `bash panel/pruebas/probar-panel.sh http://panel.huesca.empresa.lan` | A1–A10 y CSRF con curl. Cómo enseñar cada una a mano: [`panel/readme.md`](panel/readme.md#pruebas). |
 
 `sudo ./instalar.sh verificar` incluye las pruebas de la base y las del panel por Apache.
 
@@ -196,7 +197,7 @@ Se leen de `sede.env`. Valores actuales:
 | `.env.example` / `.env` | Plantilla de claves / claves reales (no van a Git). |
 | `sede.env` | Datos de la sede (sin secretos; va a Git). |
 | `db/` | PostgreSQL: imagen, `conf/` (`postgresql.conf` y la plantilla `pg_hba.conf.tpl`), scripts de creación, pruebas (`pruebas/probar.sh`) y cliente (`cliente/`). Ver [`db/README.md`](db/README.md). |
-| `panel/` | Panel del BIFI en PHP (login, perfiles, formularios). Ver [`panel/readme.md`](panel/readme.md) y [`panel/pruebas.md`](panel/pruebas.md). |
+| `panel/` | Panel del BIFI en PHP (login, perfiles, formularios). Sus datos están en la base `bifi`. Ver [`panel/readme.md`](panel/readme.md). |
 | `red/`, `dns/`, `gns3/`, `sistema/`, `web/`, `ldif/` | Configuración de cada área, con su propio `README.md` si lo tiene. |
 | `forgejo-docker/` | Datos y configuración del contenedor de Forgejo. |
 | `docs/` | Bitácora, investigaciones y documentación final del proyecto. |
@@ -219,4 +220,24 @@ Se leen de `sede.env`. Valores actuales:
 | GNS3 con nodos sin arrancar | `ip -br addr show br-virtual` (debe estar `UP`), `journalctl -u gns3server -n 30` y `/var/log/instalar-gns3.log`. Detalle en `gns3/README.md`. |
 | La intranet devuelve 401 | Es lo correcto sin credenciales; con `INTRANET_USUARIO` / `INTRANET_CLAVE` de `.env` debe dar 200. |
 
-Para cualquier duda de una fase concreta, mira el `README.md` de su carpeta.
+| `ERROR: no se han podido cargar los datos del panel` | El motivo sale justo encima (un JSON mal formado, un responsable que no existe…). No se ha guardado nada: se corrige y se repite `sudo ./instalar.sh bd`. |
+| El panel dice «no puede consultar sus datos» | La base no responde o falla una consulta. El detalle está en `docker logs panel`; como `cesar`, «Estado de la base» enseña el motivo de la conexión. |
+
+## Documentación
+
+Este fichero es la entrada. Cada área tiene su `README.md` con el detalle y sus pruebas:
+
+| Documento | De qué trata |
+|---|---|
+| [`db/README.md`](db/README.md) | PostgreSQL: bases, usuarios y permisos, tablas del panel, `pg_hba.conf` línea a línea, qué IP ve el gestor, `psql service=bifi`, parada limpia y pruebas (ASGBD RA2). |
+| [`panel/readme.md`](panel/readme.md) | Panel del BIFI: datos en PostgreSQL y su primera carga, estructura, usuarios de ejemplo, seguridad, pruebas A1–A10 y mantenimiento (IAW RA5). |
+| [`web/README.md`](web/README.md) | Apache: hosts virtuales, intranet y proxy al panel. |
+| [`dns/README.md`](dns/README.md) | BIND9: vistas interna y aula, zonas y TSIG. |
+| [`gns3/README.md`](gns3/README.md) | Red interna simulada y DNS secundario. |
+| [`red/README.md`](red/README.md), [`sistema/README.md`](sistema/README.md) | IP fija, puente, NAT, cortafuegos, usuarios y SSH. |
+| [`docs/ad-windows.md`](docs/ad-windows.md) | Lo que hay que hacer a mano en Windows Server antes de la fase `ad`. |
+| [`docs/comprobaciones.md`](docs/comprobaciones.md) | Comprobaciones de la sede con sus evidencias. |
+| [`docs/organizacion-sede-huesca.md`](docs/organizacion-sede-huesca.md) | Organización del equipo y reparto del trabajo. |
+| [`docs/bitacora.md`](docs/bitacora.md) | Cuaderno del proyecto, día a día. |
+| [`docs/Documentacion_final_sede_Huesca.md`](docs/Documentacion_final_sede_Huesca.md) | Documentación final del proyecto. |
+| `docs/Investigaciones/` | Investigaciones previas (web, base de datos, contenedores). |

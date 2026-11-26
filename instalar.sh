@@ -11,13 +11,12 @@
 set -eo pipefail
 cd "$(dirname "$0")"
 
-# ---------------------------------------------------------------- Correcciones previas de entorno
-# Auto-corregir formato de saltos de línea Windows (CRLF a LF) si se editó en Windows
+# ---------------------------------------------------------------- Scripts editados desde Windows
+# Si alguien guarda un .sh con finales de línea CRLF, bash falla con errores raros ("\r: command not found").
+# Se arreglan aquí y se les da permiso de ejecución, que Git en Windows suele perder.
 if command -v sed &>/dev/null; then
     find . -maxdepth 3 -type f -name "*.sh" -exec sed -i 's/\r$//' {} + 2>/dev/null || true
 fi
-
-# Asignar permisos de ejecución a todos los scripts .sh del proyecto de forma automática
 find . -maxdepth 3 -type f -name "*.sh" -exec chmod +x {} + 2>/dev/null || true
 
 [ "$(id -u)" -eq 0 ] || { echo "ERROR: ejecútalo con sudo:  sudo ./instalar.sh"; exit 1; }
@@ -31,14 +30,16 @@ titulo() { echo "== $*"; }
 bien()   { echo "OK    $*"; }
 mal()    { echo "FALLO $*"; FALLOS=1; }
 
-# ---------------------------------------------------------------- Garantía de Conectividad DNS
-# Garantiza que el sistema conserve resolución de nombres hacia Internet incluso si systemd-resolved o BIND cambian
+# ---------------------------------------------------------------- DNS hacia Internet
+# Al desactivar el stub de systemd-resolved (fase dns), o mientras BIND aún no responde, el servidor puede
+# quedarse sin resolver nombres y entonces apt y docker pull fallan. Si hay salida a Internet pero no
+# resuelve, se apunta resolv.conf a resolutores públicos. Sin salida a Internet no se toca: no serviría.
 asegurar_dns() {
     if ! ping -c 1 -W 2 8.8.8.8 &>/dev/null; then
-        return 0 # Si no hay ni enlace IP a Internet, no forzamos cambio de resolv.conf
+        return 0
     fi
     if ! host ppa.launchpadcontent.net &>/dev/null && ! host github.com &>/dev/null; then
-        echo "    [+] Restaurando resolución DNS hacia Internet (8.8.8.8)..."
+        echo "    Sin resolución de nombres: uso 8.8.8.8 y 1.1.1.1 en /etc/resolv.conf"
         if [ -L /etc/resolv.conf ]; then
             rm -f /etc/resolv.conf
         fi
@@ -55,10 +56,10 @@ if ! command -v docker &>/dev/null; then
 fi
 command -v openssl &>/dev/null || apt-get install -y openssl
 
-# Verificación y autocopia de sede.env para evitar fallos al realizar source
+# sede.env va en Git, pero si alguien parte de una copia sin él, se crea desde la plantilla
 if [ ! -f sede.env ]; then
     if [ -f sede.env.example ]; then
-        echo "[+] Creando sede.env a partir de sede.env.example..."
+        echo "    Creo sede.env a partir de sede.env.example"
         cp sede.env.example sede.env
     else
         echo "AVISO: No se encontró sede.env ni sede.env.example."
@@ -69,7 +70,7 @@ if [ -f sede.env ]; then
     source sede.env          # SEDE, DOMINIO, IP_AULA, BRIDGE_INTERNA…
 fi
 
-# Valores derivados de sede.env, calculados una sola vez (con valores por defecto seguros)
+# Valores derivados de sede.env que usan varias fases
 IP_AULA_SOLO="${IP_AULA%/*}"
 IP_INTERNA_SOLO="${IP_INTERNA%/*}"
 PREFIJO_INTERNA="${IP_INTERNA#*/}"
@@ -721,8 +722,40 @@ esperar_bd() {
     return 1
 }
 
+# Los JSON de panel/datos-ejemplo/ solo sirven para dar al panel sus datos de partida. El panel no los lee
+# (ni siquiera están dentro de su imagen: panel/.dockerignore): trabaja solo contra PostgreSQL.
+# db/panel/datos-iniciales.sql decide si hay que cargar (solo con la tabla de usuarios vacía), lo hace en
+# una transacción y comprueba que cada registro de los JSON ha entrado antes de confirmar.
+# Va como postgres por el socket: el usuario del panel no tiene INSERT en usuarios ni en usos, y no se le
+# van a dar solo para esto.
+cargar_datos_panel() {
+    local dir=panel/datos-ejemplo f r
+    for f in usuarios proyectos usos; do
+        if [ ! -f "$dir/$f.json" ]; then
+            r=$(docker exec -u postgres mi-postgres psql -qtAX -d "$BIFI_DB" -c "SELECT count(*) FROM usuarios")
+            if [ "$r" != 0 ]; then
+                echo "    Falta $dir/$f.json, pero el panel ya tiene sus datos en $BIFI_DB: no hace falta"
+                return 0
+            fi
+            echo "ERROR: el panel no tiene usuarios y falta $dir/$f.json para cargarlos (git checkout -- $dir)"
+            exit 1
+        fi
+    done
+
+    if ! r=$(docker exec -i -u postgres mi-postgres psql -qtAX -d "$BIFI_DB" \
+                -v usuarios="$(cat "$dir/usuarios.json")" \
+                -v proyectos="$(cat "$dir/proyectos.json")" \
+                -v usos="$(cat "$dir/usos.json")" \
+                < db/panel/datos-iniciales.sql 2>&1); then
+        echo "$r"
+        echo "ERROR: no se han podido cargar los datos del panel en $BIFI_DB (no se ha guardado nada)"
+        exit 1
+    fi
+    echo "    Datos del panel: $r"
+}
+
 bd_bifi() {
-    titulo "Base $BIFI_DB: usuarios, límites y cliente psql (ASGBD RA2)"
+    titulo "Base $BIFI_DB: usuarios, límites, datos del panel y cliente psql (ASGBD RA2)"
     esperar_bd || { echo "ERROR: PostgreSQL no responde (mira: docker logs mi-postgres)"; exit 1; }
 
     # 1. pg_hba.conf al día con .env y sede.env, y que PostgreSQL lo vuelva a leer (no hace falta reiniciar)
@@ -734,9 +767,12 @@ bd_bifi() {
     if ! docker exec -u postgres mi-postgres bash /docker-entrypoint-initdb.d/04_bifi.sh >/dev/null; then
         echo "ERROR: falló db/04_bifi.sh (el motivo está justo encima)"; exit 1
     fi
-    echo "    $BIFI_DB: base en UTF-8/es_ES, usuarios $BIFI_PANEL_USER y $BIFI_RESP_USER con límites (db/04_bifi.sh)"
+    echo "    $BIFI_DB: base en UTF-8/es_ES, tablas del panel, usuarios $BIFI_PANEL_USER y $BIFI_RESP_USER con límites (db/04_bifi.sh)"
 
-    # 3. Cliente psql en el servidor y  psql service=<BIFI_DB>  para quien ha lanzado sudo (P8).
+    # 3. Usuarios, proyectos y consumos de partida del panel
+    cargar_datos_panel
+
+    # 4. Cliente psql en el servidor y  psql service=<BIFI_DB>  para quien ha lanzado sudo (P8).
     #    ~/.pg_service.conf y ~/.pgpass quedan en SU carpeta personal, en modo 600, fuera del repositorio.
     if ! command -v psql &>/dev/null; then
         asegurar_dns
@@ -868,7 +904,8 @@ if [ -f scripts/sssd.sh ]; then source scripts/sssd.sh; fi
 
 # ---------------------------------------------------------------- Reiniciar datos (solo a mano)
 #   sudo ./instalar.sh reiniciar ldap --si    borra y recrea los datos de OpenLDAP y LAM
-#   sudo ./instalar.sh reiniciar bd --si      borra y recrea la base de PostgreSQL (20 filas iniciales)
+#   sudo ./instalar.sh reiniciar bd --si      borra y recrea PostgreSQL: inventario con sus 20 filas y el
+#                                             panel con los datos de panel/datos-ejemplo/
 # Sin --si no hace nada. No toca Forgejo ni la otra base de datos.
 reiniciar() {
     local que="${1:-}" conf="${2:-}"

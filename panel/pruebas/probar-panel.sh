@@ -4,9 +4,13 @@
 #   bash panel/pruebas/probar-panel.sh                         (por defecto http://localhost:8081)
 #   bash panel/pruebas/probar-panel.sh http://panel.huesca.empresa.lan
 #
-# Usa los usuarios de ejemplo (contraseña bifi2026). Hace como mucho dos altas de proyecto (A7 y A9)
-# con un código TST-nnnn al azar; se quedan guardadas, como cualquier alta. Lo demás lo deja como estaba.
-# Devuelve 0 si todo va bien y 1 si algo falla.
+# Usa los usuarios de ejemplo (contraseña bifi2026), que instalar.sh carga en PostgreSQL. Hace como mucho
+# dos altas de proyecto (A7 y A9) con un código TST-nnnn al azar; se quedan en la base, como cualquier alta
+# (el panel no puede borrar proyectos: si molestan, las quita el administrador, ver panel/readme.md).
+# Lo demás lo deja como estaba. Devuelve 0 si todo va bien y 1 si algo falla.
+#
+# Todos los formularios llevan código CSRF, también el de login y el botón «Salir». Por eso antes de cada
+# POST se abre la página con la misma cookie y se saca el código del HTML, como haría un navegador.
 
 URL="${1:-http://localhost:8081}"
 CLAVE=bifi2026
@@ -33,7 +37,8 @@ token() {
 # entrar <usuario>  → hace login y deja la cookie en $TMP/<usuario>
 entrar() {
     rm -f "$TMP/$1"
-    codigo "$1" -d "usuario=$1" -d "clave=$CLAVE" "$URL/login.php"
+    local t; t=$(token "$1" login.php)
+    codigo "$1" -d "usuario=$1" -d "clave=$CLAVE" -d "csrf=$t" "$URL/login.php"
 }
 cookie_de() { awk '$6 == "PHPSESSID" {print $7}' "$TMP/$1"; }
 
@@ -42,16 +47,20 @@ echo "Probando $URL"
 # --- A1, A2 · Login con password_hash y mensajes ----------------------------------------------
 [ "$(codigo anonimo "$URL/index.php")" = 302 ] && bien "A1 sin sesión, index.php redirige a login" || mal "A1 sin sesión"
 
-codigo anonimo "$URL/login.php" >/dev/null
+t=$(token anonimo login.php)
 antes=$(cookie_de anonimo)
 cp "$TMP/anonimo" "$TMP/marta"
-r=$(codigo marta -d usuario=marta -d "clave=$CLAVE" "$URL/login.php")
+r=$(codigo marta -d usuario=marta -d "clave=$CLAVE" -d "csrf=$t" "$URL/login.php")
 [ "$r" = 302 ] && bien "A1 marta entra (302 a index.php)" || mal "A1 login de marta: $r"
 [ -n "$antes" ] && [ "$antes" != "$(cookie_de marta)" ] && bien "A1 el id de sesión cambia al entrar" || mal "A1 el id de sesión no cambia"
 
-m1=$(curl -s -d usuario=marta -d clave=mala "$URL/login.php" | grep -c 'Usuario o contraseña incorrectos')
-m2=$(curl -s -d usuario=noexiste -d clave=mala "$URL/login.php" | grep -c 'Usuario o contraseña incorrectos')
+t=$(token fallo login.php)
+m1=$(curl -s -b "$TMP/fallo" -c "$TMP/fallo" -d usuario=marta -d clave=mala -d "csrf=$t" "$URL/login.php" | grep -c 'Usuario o contraseña incorrectos')
+m2=$(curl -s -b "$TMP/fallo" -c "$TMP/fallo" -d usuario=noexiste -d clave=mala -d "csrf=$t" "$URL/login.php" | grep -c 'Usuario o contraseña incorrectos')
 [ "$m1" = 1 ] && [ "$m2" = 1 ] && bien "A2 mismo mensaje con clave mala y con usuario que no existe" || mal "A2 mensajes de error"
+
+r=$(codigo sincsrf -d usuario=marta -d "clave=$CLAVE" "$URL/login.php")
+[ "$r" = 400 ] && bien "CSRF: login sin código del formulario: 400 (aunque la clave sea buena)" || mal "CSRF en login: $r"
 
 # --- A3, A5, A8 · Perfil en la sesión y menú según el perfil ----------------------------------
 entrar ana >/dev/null; entrar cesar >/dev/null; entrar jorge >/dev/null
@@ -65,7 +74,9 @@ pagina ana index.php   | grep -q 'FIS-0002' && mal "A8 ana ve FIS-0002" || bien 
 [ "$(codigo ana "$URL/proyecto.php?codigo=FIS-0002")" = 404 ] && bien "A4 ana cambia la URL a FIS-0002: 404" || mal "A4 URL ajena"
 [ "$(codigo marta "$URL/estado-bd.php")" = 403 ] && bien "A4 marta abre estado-bd.php a mano: 403" || mal "A4 estado-bd.php para marta"
 
-t=$(token ana "proyecto.php?codigo=BIO-0001")   # ana no tiene formulario: el token sale vacío o del suyo
+# ana no tiene el formulario de miembros, pero sí el botón «Salir»: el código es el suyo de verdad.
+# Así el 403 sale de la autorización (puede_gestionar) y no del CSRF.
+t=$(token ana "proyecto.php?codigo=BIO-0001")
 r=$(codigo ana -d accion=anadir -d investigador=luis -d "csrf=$t" "$URL/proyecto.php?codigo=BIO-0001")
 [ "$r" = 403 ] && bien "A8c ana (investigadora) manda el formulario a mano: 403" || mal "A8c POST de ana: $r"
 t=$(token jorge index.php)
@@ -110,7 +121,10 @@ fi
 entrar marta >/dev/null
 cp "$TMP/marta" "$TMP/marta-vieja"              # guardamos la cookie antes de salir
 [ "$(codigo marta-vieja "$URL/index.php")" = 200 ] && bien "A10 (control) antes de salir, esa cookie entra" || mal "A10 control"
-codigo marta "$URL/logout.php" >/dev/null
+codigo marta "$URL/logout.php" >/dev/null        # por GET no se cierra nada: solo redirige
+[ "$(codigo marta "$URL/index.php")" = 200 ] && bien "CSRF: abrir logout.php por GET no cierra la sesión" || mal "logout por GET cierra la sesión"
+t=$(token marta index.php)                       # el primer formulario de index.php es el botón «Salir»
+codigo marta -d "csrf=$t" "$URL/logout.php" >/dev/null
 r=$(codigo marta-vieja "$URL/index.php")
 [ "$r" = 302 ] && bien "A10 la cookie de la sesión cerrada ya no entra (302 a login)" || mal "A10 cookie vieja: $r"
 

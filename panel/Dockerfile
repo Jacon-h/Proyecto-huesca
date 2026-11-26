@@ -1,6 +1,5 @@
 # Panel del BIFI · PHP 8.3 con Apache.
-# pdo_pgsql: el panel entra en la base bifi con su usuario "panel" (comun/bd.php). Sus datos siguen
-# en JSON; en el RA6 pasarán a PostgreSQL.
+# pdo_pgsql: todos los datos del panel están en la base bifi (comun/bd.php). El contenedor no guarda nada.
 FROM php:8.3-apache
 
 RUN apt-get update \
@@ -8,7 +7,11 @@ RUN apt-get update \
  && docker-php-ext-install pdo_pgsql \
  && rm -rf /var/lib/apt/lists/*
 
-# Solo public/ se sirve. comun/ y datos/ quedan fuera del alcance del navegador.
+# La imagen oficial viene sin php.ini, y entonces PHP enseña los errores en la página (rutas, consultas,
+# a veces el usuario de la base). Con el de producción van al registro (docker logs panel) y no al navegador.
+RUN cp "$PHP_INI_DIR/php.ini-production" "$PHP_INI_DIR/php.ini"
+
+# Solo public/ se sirve. comun/ y pruebas/ quedan fuera del alcance del navegador.
 ENV APACHE_DOCUMENT_ROOT=/var/www/panel/public
 RUN sed -ri 's!/var/www/html!${APACHE_DOCUMENT_ROOT}!g' /etc/apache2/sites-available/*.conf \
  && sed -ri 's!/var/www/!/var/www/panel/!g' /etc/apache2/apache2.conf
@@ -17,5 +20,5 @@ COPY public/  /var/www/panel/public/
 COPY comun/   /var/www/panel/comun/
 # Scripts de prueba para la línea de órdenes (docker exec panel php ...). Fuera de public/: no se sirven.
 COPY pruebas/ /var/www/panel/pruebas/
-# Datos de ejemplo. En Compose, datos/ es un volumen: la primera vez se llena con esto.
-COPY --chown=www-data:www-data datos-ejemplo/ /var/www/panel/datos/
+# datos-ejemplo/ no se copia (y .dockerignore lo deja fuera del todo): esos JSON solo los usa
+# instalar.sh para la primera carga de la base.

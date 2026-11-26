@@ -14,3 +14,5 @@ input, select, button { font: inherit; padding: .4rem; }
 button { background: var(--marca); color: #fff; border: 0; cursor: pointer; }
 .en-linea { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
 .error { color: var(--error); }
+header nav { display: flex; flex-wrap: wrap; align-items: center; }
+button.enlace { background: none; padding: 0; color: inherit; text-decoration: underline; }

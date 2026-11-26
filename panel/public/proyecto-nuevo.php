@@ -13,10 +13,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // que aunque el navegador no compruebe nada, el servidor rechaza los datos malos.
     [$p, $errores] = validar_proyecto($_POST);
     if ($errores === []) {
-        $proyectos = leer_datos('proyectos');
-        $proyectos[] = $p;
-        guardar_datos('proyectos', $proyectos);
-        redirigir('proyecto.php?codigo=' . urlencode($p['codigo']));
+        if (crear_proyecto($p)) {
+            redirigir('proyecto.php?codigo=' . urlencode($p['codigo']));
+        }
+        // Alguien lo ha dado de alta justo entre la validación y el INSERT.
+        $errores['codigo'] = 'Ya existe un proyecto con ese código.';
     }
 }
 

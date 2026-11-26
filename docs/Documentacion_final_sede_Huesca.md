@@ -574,6 +574,32 @@ El `README.md` del repositorio también se actualizó con un índice de polític
 *   El `README.md` actualizado indexa las políticas, pero todavía no incluye la tabla de responsable
     *   suplente por área que pide el apartado 0/1.
 
+### 4.9 Panel del BIFI y su base
+
+El panel (`panel.huesca.empresa.lan`, contenedor `panel`) guarda todos sus datos en PostgreSQL, en la
+base `bifi`. Al principio los guardaba en ficheros JSON dentro de un volumen; el 26/11/2026 se pasaron a
+la base:
+
+*   **Tablas** `usuarios`, `proyectos`, `miembros` y `usos`, creadas por `db/04_bifi.sh` con el
+    administrador como dueño.
+*   **Mínimo privilegio:** el usuario `panel` no puede crear ni borrar tablas, y en cada una solo tiene lo
+    que usa: `SELECT` en `usuarios` y `usos`, `SELECT, INSERT` en `proyectos` y `SELECT, INSERT, DELETE`
+    en `miembros`. `resp_demo` no ve ninguna tabla.
+*   **Primera carga:** `sudo ./instalar.sh bd` mete los JSON de `panel/datos-ejemplo/` en una sola
+    transacción y comprueba que ha entrado todo antes de confirmar. Solo lo hace con la base vacía, y el
+    panel ya no lee esos ficheros (ni están en su imagen).
+*   **En el código:** consultas preparadas en todas partes, contraseñas con `password_hash`, salida escapada
+    con `htmlspecialchars`, código CSRF en todos los formularios (también en el login y en «Salir») y
+    credenciales solo en variables de entorno.
+
+Detalle, pruebas y mantenimiento: [`panel/readme.md`](../panel/readme.md) y
+[`db/README.md`](../db/README.md#tablas-del-panel).
+
+**🔴 Lo que falta:**
+
+*   Repetir `bash panel/pruebas/probar-panel.sh` y `sudo ./db/pruebas/probar.sh` en la VM con la versión en
+    PostgreSQL y añadir aquí las capturas.
+
 ---
 
 ## 5\. Operación

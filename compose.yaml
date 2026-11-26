@@ -192,8 +192,7 @@ services:
     container_name: panel
     ports:
       - "8081:80"                   # para probar sin el proxy de la sede
-    volumes:
-      - datos-panel:/var/www/panel/datos
+    # Sin volumen: el panel no guarda nada en el contenedor, todos sus datos están en BIFI_DB
     environment:                    # conexión a su base (P1). La lee panel/comun/bd.php con getenv()
       BIFI_HOST: db                 # nombre del servicio de la base en este mismo fichero, no un dato de .env
       BIFI_DB: ${BIFI_DB:?falta BIFI_DB en .env}
@@ -208,7 +207,6 @@ volumes:
   datos:
   datos_ldap_db:
   datos_ldap_config:
-  datos-panel:
 
 networks:
   frontal:
