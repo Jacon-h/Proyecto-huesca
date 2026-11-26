@@ -30,9 +30,9 @@ cabecera('Nuevo proyecto', $u);
 ?>
 <form method="post" class="tarjeta" novalidate>
   <?= campo_csrf() ?>
-  <label>Código <input name="codigo" value="<?= e($p['codigo']) ?>" placeholder="BIO-0003"></label>
+  <label>Código <input name="codigo" value="<?= e($p['codigo']) ?>" placeholder="BIO-0003" data-patron="^[A-Z]{3}-[0-9]{4}$" autocomplete="off"></label>
   <?= error_de($errores, 'codigo') ?>
-  <label>Título <input name="titulo" value="<?= e($p['titulo']) ?>"></label>
+  <label>Título <input name="titulo" value="<?= e($p['titulo']) ?>" data-min="5" data-max="120" autocomplete="off"></label>
   <?= error_de($errores, 'titulo') ?>
   <label>Tarifa
     <select name="tarifa">
@@ -54,3 +54,4 @@ cabecera('Nuevo proyecto', $u);
 </form>
 <?php
 pie();
+
